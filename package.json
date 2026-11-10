@@ -10,7 +10,7 @@
     "seed": "node --env-file-if-exists=.env scripts/seed.js",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
-    "test": "node --test"
+    "test": "node --env-file-if-exists=.env --test"
   },
   "dependencies": {
     "express": "^5.3.0",

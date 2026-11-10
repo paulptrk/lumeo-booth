@@ -24,7 +24,7 @@ src/
   routes/        interface: read the request, call a service, send the response
   middleware/    interface: auth, error code -> http status
   services/      use cases: idempotency, transactions, return plain objects (DTOs)
-  domain/        business rules as methods on objects. no imports (no express, no sql)
+  domain/        business rules as methods on objects. only imports other domain files (no express, no sql)
   repositories/  data source: sql, turns rows into domain objects and back
   db/            postgres connection pool
 migrations/      numbered .sql files, run in order by `npm run migrate`
@@ -32,7 +32,9 @@ seeds/           sample booths and backdrops
 scripts/         migrate / seed / test scripts
 ```
 
-Dependencies point inward: routes and repositories can import from `domain/`, but `domain/` never imports anything.
+Dependencies point inward: routes and repositories can import from `domain/`, but `domain/` never imports anything from outside `domain/`.
+
+Tests: `npm test` (uses node's built-in test runner, no db needed for domain tests).
 
 Errors: throw a `DomainError` subclass (from `src/domain/errors.js`) with a `code`. Services never set http status codes. The `STATUS` map in `src/middleware/errorHandler.js` turns the code into a status.
 

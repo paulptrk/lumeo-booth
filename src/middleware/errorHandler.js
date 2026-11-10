@@ -4,6 +4,12 @@ import { DomainError } from "../domain/errors.js";
 const STATUS = {
   not_found: 404,
   forbidden: 403,
+  booth_unavailable: 409,
+  booking_cancelled: 409,
+  booth_not_bookable: 422,
+  backdrop_not_available: 422,
+  invalid_package: 422,
+  invalid_event_date: 422,
 };
 
 export function notFound(req, res) {

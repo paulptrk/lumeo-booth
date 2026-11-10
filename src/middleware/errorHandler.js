@@ -10,6 +10,7 @@ const STATUS = {
   backdrop_not_available: 422,
   invalid_package: 422,
   invalid_event_date: 422,
+  idempotency_key_reused: 422,
 };
 
 export function notFound(req, res) {

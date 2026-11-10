@@ -11,3 +11,9 @@ INSERT INTO backdrops (id, name) VALUES
   ('backdrop_pillowcase_white', 'Pillowcase - White'),
   ('backdrop_sequin_gold',      'Sequin - Gold')
 ON CONFLICT (id) DO NOTHING;
+
+-- dev accounts for testing before login exists. the hashes are placeholders, not real passwords
+INSERT INTO users (email, password_hash, role) VALUES
+  ('customer@lumeo.dev', 'placeholder', 'customer'),
+  ('staff@lumeo.dev',    'placeholder', 'staff')
+ON CONFLICT (email) DO NOTHING;

@@ -23,7 +23,7 @@ export const STAFF = "staff";
 export const PACKAGES = ["digital_only", "digital_plus_prints"];
 export const DEPOSIT_CENTS = 15000;
 
-function isValidDate(value) {
+export function isValidDate(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   // catches things like 2026-02-31
   const d = new Date(value + "T00:00:00Z");

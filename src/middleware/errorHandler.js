@@ -1,4 +1,10 @@
-import { HttpError } from "../errors.js";
+import { DomainError } from "../domain/errors.js";
+
+// error code -> http status. add new codes here when you add a domain error
+const STATUS = {
+  not_found: 404,
+  forbidden: 403,
+};
 
 export function notFound(req, res) {
   res.status(404).json({ error: { code: "not_found", message: "Route not found" } });
@@ -6,8 +12,9 @@ export function notFound(req, res) {
 
 // eslint-disable-next-line no-unused-vars
 export function errorHandler(err, req, res, next) {
-  if (err instanceof HttpError) {
-    return res.status(err.status).json({ error: { code: err.code, message: err.message } });
+  if (err instanceof DomainError) {
+    const status = STATUS[err.code] ?? 400;
+    return res.status(status).json({ error: { code: err.code, message: err.message } });
   }
 
   // bad json body

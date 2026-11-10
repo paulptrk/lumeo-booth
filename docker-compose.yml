@@ -6,7 +6,8 @@ services:
       POSTGRES_PASSWORD: lumeo
       POSTGRES_DB: lumeo
     ports:
-      - "5432:5432"
+      # 5433 on the host so it doesn't clash with a local postgres install
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

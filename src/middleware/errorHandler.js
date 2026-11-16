@@ -13,6 +13,7 @@ export const STATUS = {
   backdrop_not_available: 422,
   invalid_package: 422,
   invalid_event_date: 422,
+  idempotency_key_required: 422,
   idempotency_key_reused: 422,
 };
 
@@ -26,6 +27,9 @@ export function notFound(req, res) {
 
 // eslint-disable-next-line no-unused-vars
 export function errorHandler(err, req, res, next) {
+  // a stored error sent back for a retried Idempotency-Key
+  if (err.replayed) res.set("Idempotent-Replayed", "true");
+
   if (err instanceof DomainError && STATUS[err.code]) {
     return send(res, STATUS[err.code], err.code, err.message);
   }

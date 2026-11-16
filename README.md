@@ -42,7 +42,7 @@ With the app running (Docker or `npm run dev`) and the db seeded:
 npm run demo:concurrency
 ```
 
-It fires 10 `POST /bookings` at once for the same booth and date and expects exactly one `201` and nine `409 booth_unavailable`. It then sends the same request with one `Idempotency-Key` 10 times at once and expects one `201` and nine `200` replays of the same booking. It also checks the database holds one booking, exits non-zero on any mismatch, and cancels its demo bookings afterwards. The reason it holds is explained at the top of [scripts/concurrency-demo.js](scripts/concurrency-demo.js): the unique partial index decides, not a check before the insert.
+It fires 10 `POST /bookings` at once for the same booth and date and expects exactly one `201` and nine `409 booth_unavailable`. It then sends the same request with one `Idempotency-Key` 10 times at once and expects ten `201`s with the same booking: one created it and nine are replays (marked `Idempotent-Replayed: true`). It also checks the database holds one booking, exits non-zero on any mismatch, and cancels its demo bookings afterwards. The reason it holds is explained at the top of [scripts/concurrency-demo.js](scripts/concurrency-demo.js): the unique partial index decides, not a check before the insert.
 
 ## Project structure
 
@@ -76,7 +76,7 @@ Errors: throw a `DomainError` subclass (from `src/domain/errors.js`) with a `cod
 | GET | `/booths` | no | active booths |
 | GET | `/backdrops` | no | active backdrops |
 | GET | `/booths/:id/availability?date=YYYY-MM-DD` | no | display only, the real check is on insert |
-| POST | `/bookings` | yes | optional `Idempotency-Key` header. 201 new, 200 replay, 409 taken |
+| POST | `/bookings` | yes | requires an `Idempotency-Key` header. 201 created, 409 taken. A retry with the same key gets the first attempt's status and body back (errors too) |
 | GET | `/bookings` | yes | customers get their own, staff get all |
 | GET | `/bookings/:id` | yes | owner or staff |
 | PATCH | `/bookings/:id/cancel` | yes | owner or staff |

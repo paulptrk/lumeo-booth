@@ -47,11 +47,18 @@ function operation(method, specPathName) {
 // --- the call + check -------------------------------------------------------
 
 let baseUrl;
+let keyCount = 0;
 
 // sends a real http request, then checks the response against the spec.
-// returns { status, body, headers } so a test can also check the values
+// returns { status, body, headers } so a test can also check the values.
+// a POST gets a fresh Idempotency-Key like a real client's new attempt, unless the
+// test passes its own (or null to send none)
 async function call(method, specPathName, { path: urlPath = specPathName, user, body, raw, headers = {} } = {}) {
   const init = { method, headers: { ...headers } };
+  if (method === "POST" && !("Idempotency-Key" in headers)) {
+    init.headers["Idempotency-Key"] = `contract-${run}-auto-${keyCount++}`;
+  }
+  for (const [name, value] of Object.entries(init.headers)) if (value === null) delete init.headers[name];
   if (user) init.headers["X-User-Id"] = String(user.id);
   if (raw !== undefined || body !== undefined) {
     init.headers["Content-Type"] ??= "application/json";
@@ -76,10 +83,12 @@ async function call(method, specPathName, { path: urlPath = specPathName, user, 
     assert.ok(validate(json), `${label}: body does not match the spec: ${JSON.stringify(validate.errors)}\nbody: ${text}`);
   }
 
-  for (const [name, header] of Object.entries(response.headers ?? {})) {
+  for (const [name, ref] of Object.entries(response.headers ?? {})) {
+    const header = deref(ref);
     const value = res.headers.get(name);
+    if (value === null && !header.required) continue;
     assert.ok(value !== null, `${label}: documented header ${name} is missing`);
-    const validate = ajv.compile(deref(header).schema);
+    const validate = ajv.compile(header.schema);
     assert.ok(validate(value), `${label}: header ${name}="${value}" does not match the spec`);
   }
 
@@ -197,14 +206,38 @@ test("POST /bookings: same date again is 409 booth_unavailable", async () => {
   assert.equal(second.body.error.code, "booth_unavailable");
 });
 
-test("POST /bookings: idempotent replay is 200 with the Idempotent-Replayed header", async () => {
+test("POST /bookings: a replay gets the same 201 and body, with the Idempotent-Replayed header", async () => {
   const headers = { "Idempotency-Key": `contract-${run}-a` };
   const first = await call("POST", "/bookings", { user: ana, body: newBooking("2094-03-03"), headers });
   const replay = await call("POST", "/bookings", { user: ana, body: newBooking("2094-03-03"), headers });
   assert.equal(first.status, 201);
-  assert.equal(replay.status, 200);
+  assert.equal(first.headers.get("Idempotent-Replayed"), null);
+  assert.equal(replay.status, 201);
   assert.equal(replay.headers.get("Idempotent-Replayed"), "true");
-  assert.equal(replay.body.id, first.body.id);
+  assert.deepEqual(replay.body, first.body);
+});
+
+test("POST /bookings: a 409 is replayed as the same 409, even after the date frees up", async () => {
+  const headers = { "Idempotency-Key": `contract-${run}-c` };
+  const { body: anas } = await call("POST", "/bookings", { user: ana, body: newBooking("2094-03-08") });
+  const lost = await call("POST", "/bookings", { user: kim, body: newBooking("2094-03-08"), headers });
+  assert.equal(lost.status, 409);
+
+  await call("PATCH", "/bookings/{id}/cancel", { path: `/bookings/${anas.id}/cancel`, user: ana });
+  const replay = await call("POST", "/bookings", { user: kim, body: newBooking("2094-03-08"), headers });
+  assert.equal(replay.status, 409);
+  assert.equal(replay.body.error.code, "booth_unavailable");
+  assert.equal(replay.headers.get("Idempotent-Replayed"), "true");
+});
+
+test("POST /bookings: no Idempotency-Key is 422 idempotency_key_required", async () => {
+  const res = await call("POST", "/bookings", {
+    user: ana,
+    body: newBooking("2094-03-09"),
+    headers: { "Idempotency-Key": null },
+  });
+  assert.equal(res.status, 422);
+  assert.equal(res.body.error.code, "idempotency_key_required");
 });
 
 test("POST /bookings: same key with a different body is 422 idempotency_key_reused", async () => {

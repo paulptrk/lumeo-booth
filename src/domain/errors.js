@@ -70,6 +70,12 @@ export class BookingCancelled extends DomainError {
   }
 }
 
+export class IdempotencyKeyRequired extends DomainError {
+  constructor() {
+    super("idempotency_key_required", "POST /bookings needs an Idempotency-Key header");
+  }
+}
+
 export class IdempotencyKeyReused extends DomainError {
   constructor() {
     super("idempotency_key_reused", "This Idempotency-Key was already used for a different request");

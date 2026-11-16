@@ -16,3 +16,19 @@ export async function withTransaction(fn) {
     client.release();
   }
 }
+
+// runs fn inside a savepoint of a transaction that's already open on client.
+// if fn throws, only fn's changes are undone and the transaction can keep going.
+// needed because in postgres any failed statement (like a unique violation)
+// otherwise aborts the whole transaction
+export async function withSavepoint(client, fn) {
+  await client.query("SAVEPOINT attempt");
+  try {
+    const result = await fn();
+    await client.query("RELEASE SAVEPOINT attempt");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK TO SAVEPOINT attempt");
+    throw err;
+  }
+}

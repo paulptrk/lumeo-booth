@@ -125,6 +125,12 @@ paths:
         Creates a booking with status `pending_payment` and a fixed deposit. A booth can have
         only one active (not cancelled) booking per date; if two requests race for the same
         booth and date, exactly one wins and the rest get 409.
+
+        Needs an `Idempotency-Key` header (see the parameter). A retry with the same key
+        and body gets back the outcome of the first attempt, with the same status and body,
+        and nothing runs again. That includes errors: if the first attempt got 409, the
+        retry gets the same 409 even if the date has freed up since. Use a new key for a
+        new attempt.
       operationId: createBooking
       security:
         - UserIdHeader: []
@@ -137,18 +143,9 @@ paths:
             schema: { $ref: "#/components/schemas/CreateBookingRequest" }
       responses:
         "201":
-          description: Booking created
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Booking" }
-        "200":
-          description: |
-            This `Idempotency-Key` was already used with the same body. The original booking
-            is returned and nothing new is created.
+          description: Booking created, or a replay of the request that created it
           headers:
-            Idempotent-Replayed:
-              description: Always `true` on a replay
-              schema: { type: string, enum: ["true"] }
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Booking" }
@@ -170,6 +167,8 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "409":
           description: The booth is already booked on that date (`booth_unavailable`)
+          headers:
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -177,7 +176,9 @@ paths:
           description: |
             The request is well formed but not acceptable. `code` is one of
             `booth_not_bookable`, `backdrop_not_available`, `invalid_package`,
-            `invalid_event_date` or `idempotency_key_reused`.
+            `invalid_event_date`, `idempotency_key_required` or `idempotency_key_reused`.
+          headers:
+            Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -261,10 +262,13 @@ components:
     IdempotencyKey:
       name: Idempotency-Key
       in: header
-      required: false
+      required: true
       description: |
-        Any string that is unique per intended booking (a UUID works well). Keys are scoped to
-        the caller, so two customers can't collide.
+        A string the client makes once per booking attempt (a UUID works well) and sends
+        again, unchanged, on every retry of that attempt. Keys are scoped to the caller, so
+        two customers can't collide. Missing key: 422 `idempotency_key_required`. Same key
+        with a different body: 422 `idempotency_key_reused` (a client bug, don't retry).
+        A timed-out client must retry with the same key; a new key is a new booking attempt.
       schema: { type: string, example: 6f1c1d1e-7a0c-4f3e-9d51-3b2f5a0b8c11 }
     BookingId:
       name: id
@@ -272,6 +276,15 @@ components:
       required: true
       description: Booking id, a positive whole number
       schema: { type: string, pattern: "^[1-9][0-9]{0,18}$", example: "42" }
+
+  headers:
+    IdempotentReplayed:
+      description: |
+        `true` when this response is a replay of an earlier attempt with the same
+        Idempotency-Key. Absent on a first attempt. Only informational: the status and
+        body are the same either way.
+      required: false
+      schema: { type: string, enum: ["true"] }
 
   responses:
     Unauthenticated:
@@ -400,6 +413,7 @@ components:
                 - backdrop_not_available
                 - invalid_package
                 - invalid_event_date
+                - idempotency_key_required
                 - idempotency_key_reused
                 - internal_error
             message: { type: string }

@@ -5,7 +5,15 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { pool } from "../../src/db/pool.js";
 import * as service from "../../src/services/bookingService.js";
-import { BoothUnavailable, Forbidden, NotFound, InvalidId, IdempotencyKeyReused } from "../../src/domain/errors.js";
+import {
+  BoothUnavailable,
+  Forbidden,
+  NotFound,
+  InvalidId,
+  InvalidEventDate,
+  IdempotencyKeyRequired,
+  IdempotencyKeyReused,
+} from "../../src/domain/errors.js";
 
 const now = new Date("2026-11-10T12:00:00Z");
 const run = Date.now();
@@ -18,6 +26,10 @@ async function makeUser(name, role = "customer") {
   );
   return { id: rows[0].id, role };
 }
+
+// a fresh key per call, like a client making a new attempt
+let n = 0;
+const key = () => `svc-${run}-${n++}`;
 
 function input(eventDate) {
   return { boothId: "booth_dslr_01", backdropId: "backdrop_pillowcase_blue", eventDate, package: "digital_only" };
@@ -38,43 +50,65 @@ after(async () => {
 });
 
 test("create then the same booth and date again is BoothUnavailable", async () => {
-  const { booking } = await service.createBooking(ana, input("2098-01-01"), null, now);
+  const { booking } = await service.createBooking(ana, input("2098-01-01"), key(), now);
   assert.equal(booking.status, "pending_payment");
-  await assert.rejects(service.createBooking(kim, input("2098-01-01"), null, now), BoothUnavailable);
+  await assert.rejects(service.createBooking(kim, input("2098-01-01"), key(), now), BoothUnavailable);
 });
 
 test("same idempotency key twice gives back the same booking", async () => {
-  const first = await service.createBooking(ana, input("2098-01-02"), "key-1", now);
-  const second = await service.createBooking(ana, input("2098-01-02"), "key-1", now);
+  const first = await service.createBooking(ana, input("2098-01-02"), `key-1-${run}`, now);
+  const second = await service.createBooking(ana, input("2098-01-02"), `key-1-${run}`, now);
   assert.equal(first.replayed, false);
   assert.equal(second.replayed, true);
   assert.equal(second.booking.id, first.booking.id);
 });
 
 test("same key with a different body is rejected", async () => {
-  await service.createBooking(ana, input("2098-01-03"), "key-2", now);
-  await assert.rejects(service.createBooking(ana, input("2098-01-04"), "key-2", now), IdempotencyKeyReused);
+  await service.createBooking(ana, input("2098-01-03"), `key-2-${run}`, now);
+  await assert.rejects(service.createBooking(ana, input("2098-01-04"), `key-2-${run}`, now), IdempotencyKeyReused);
 });
 
 test("double click: same key sent 5 times at once makes one booking", async () => {
   const results = await Promise.all(
-    Array.from({ length: 5 }, () => service.createBooking(kim, input("2098-01-05"), "key-3", now))
+    Array.from({ length: 5 }, () => service.createBooking(kim, input("2098-01-05"), `key-3-${run}`, now))
   );
   const ids = new Set(results.map((r) => r.booking.id));
   assert.equal(ids.size, 1);
   assert.equal(results.filter((r) => !r.replayed).length, 1);
 });
 
-test("a failed booking doesn't burn the key", async () => {
-  await service.createBooking(ana, input("2098-01-06"), null, now);
-  await assert.rejects(service.createBooking(kim, input("2098-01-06"), "key-4", now), BoothUnavailable);
-  // key wasn't saved, so using it for a free date works
-  const { replayed } = await service.createBooking(kim, input("2098-01-07"), "key-4", now);
-  assert.equal(replayed, false);
+test("no idempotency key is rejected", async () => {
+  await assert.rejects(service.createBooking(ana, input("2098-01-06"), undefined, now), IdempotencyKeyRequired);
+  await assert.rejects(service.createBooking(ana, input("2098-01-06"), "", now), IdempotencyKeyRequired);
+});
+
+test("a 409 is saved with the key and replayed, even after the date frees up", async () => {
+  const { booking } = await service.createBooking(ana, input("2098-01-07"), key(), now);
+  const k = `key-4-${run}`;
+  await assert.rejects(service.createBooking(kim, input("2098-01-07"), k, now), BoothUnavailable);
+
+  await service.cancelBooking(ana, booking.id, now);
+  // same attempt, so same answer: still a 409, not a new booking
+  await assert.rejects(service.createBooking(kim, input("2098-01-07"), k, now), (err) => {
+    assert.equal(err.code, "booth_unavailable");
+    assert.equal(err.replayed, true);
+    return true;
+  });
+  assert.equal((await service.getBoothAvailability("booth_dslr_01", "2098-01-07")).available, true);
+});
+
+test("a validation error is replayed too", async () => {
+  const k = `key-5-${run}`;
+  await assert.rejects(service.createBooking(ana, input("2020-01-01"), k, now), InvalidEventDate);
+  await assert.rejects(service.createBooking(ana, input("2020-01-01"), k, now), (err) => {
+    assert.equal(err.code, "invalid_event_date");
+    assert.equal(err.replayed, true);
+    return true;
+  });
 });
 
 test("customers only see their own bookings, staff see all", async () => {
-  const { booking } = await service.createBooking(ana, input("2098-02-01"), null, now);
+  const { booking } = await service.createBooking(ana, input("2098-02-01"), key(), now);
   await assert.rejects(service.getBooking(kim, booking.id), Forbidden);
   assert.equal((await service.getBooking(staff, booking.id)).id, booking.id);
 
@@ -85,7 +119,7 @@ test("customers only see their own bookings, staff see all", async () => {
 });
 
 test("cancel frees the date and other customers can't cancel", async () => {
-  const { booking } = await service.createBooking(ana, input("2098-03-01"), null, now);
+  const { booking } = await service.createBooking(ana, input("2098-03-01"), key(), now);
   await assert.rejects(service.cancelBooking(kim, booking.id, now), Forbidden);
 
   const cancelled = await service.cancelBooking(ana, booking.id, now);

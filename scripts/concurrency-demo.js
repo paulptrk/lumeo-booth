@@ -4,7 +4,8 @@
 //   scenario A  10 different requests (10 keys) for one booth + date
 //               -> exactly one 201, the other nine are 409 booth_unavailable
 //   scenario B  the same request (same Idempotency-Key) sent 10 times at once
-//               -> exactly one 201, the other nine are 200 replays of that booking
+//               -> all ten are 201 with the same booking: one created it, the other
+//                  nine are replays (Idempotent-Replayed: true) of that same outcome
 //
 // why it holds: there is no "is it free?" check followed by an insert (that
 // leaves a gap two requests can both slip through). the insert itself is the
@@ -139,12 +140,12 @@ async function runScenarios(customerId, created) {
   const dateB = await pickFreeDate();
   const sameKey = crypto.randomUUID();
   const b = await fireAll(customerId, dateB, Array(N).fill(sameKey));
-  created.push(...b.filter((r) => r.status === 201).map((r) => r.bookingId));
+  created.push(...b.filter((r) => r.status === 201 && !r.replayed).map((r) => r.bookingId));
   printTable(`Scenario B: the same request (same Idempotency-Key) sent ${N} times`, dateB, b);
   console.log("");
-  check(countBy(b, 201) === 1, `exactly one 201 (got ${countBy(b, 201)})`);
-  check(countBy(b, 200) === N - 1, `the other ${N - 1} are 200 replays (got ${countBy(b, 200)})`);
-  check(b.filter((r) => r.status === 200).every((r) => r.replayed), "every 200 carries Idempotent-Replayed: true");
+  const replays = b.filter((r) => r.replayed).length;
+  check(countBy(b, 201) === N, `all ${N} are 201, a replay gets the same status (got ${countBy(b, 201)})`);
+  check(replays === N - 1, `exactly one created it, the other ${N - 1} are replays (got ${replays} replays)`);
   check(new Set(b.map((r) => r.bookingId)).size === 1, "all responses return the same booking id");
   check((await activeRows(dateB)) === 1, "database holds exactly one booking for that date (no duplicates)");
 }

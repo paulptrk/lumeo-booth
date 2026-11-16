@@ -1,5 +1,6 @@
 // idempotency keys for POST /bookings. db should be a client inside the
-// same transaction as the booking insert, so both commit or neither does.
+// same transaction as the booking insert, so the key and its outcome are
+// saved together or not at all.
 
 export class IdempotencyRepository {
   constructor(db) {
@@ -19,19 +20,20 @@ export class IdempotencyRepository {
     return rows.length > 0;
   }
 
+  // returns { requestHash, outcome } or null
   async find(customerId, key) {
     const { rows } = await this.db.query(
-      "SELECT request_hash, booking_id FROM idempotency_keys WHERE customer_id = $1 AND key = $2",
+      "SELECT request_hash, outcome FROM idempotency_keys WHERE customer_id = $1 AND key = $2",
       [customerId, key]
     );
     if (!rows[0]) return null;
-    return { requestHash: rows[0].request_hash, bookingId: rows[0].booking_id };
+    return { requestHash: rows[0].request_hash, outcome: rows[0].outcome };
   }
 
-  async attachBooking(customerId, key, bookingId) {
+  async saveOutcome(customerId, key, outcome, bookingId = null) {
     await this.db.query(
-      "UPDATE idempotency_keys SET booking_id = $3 WHERE customer_id = $1 AND key = $2",
-      [customerId, key, bookingId]
+      "UPDATE idempotency_keys SET outcome = $3, booking_id = $4 WHERE customer_id = $1 AND key = $2",
+      [customerId, key, outcome, bookingId]
     );
   }
 }

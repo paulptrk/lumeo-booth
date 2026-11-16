@@ -4,9 +4,17 @@
 
 import crypto from "node:crypto";
 import { pool } from "../db/pool.js";
-import { withTransaction } from "../db/transaction.js";
+import { withTransaction, withSavepoint } from "../db/transaction.js";
 import { Booking, businessDate, isValidDate, STAFF } from "../domain/booking.js";
-import { NotFound, Forbidden, InvalidEventDate, InvalidId, IdempotencyKeyReused } from "../domain/errors.js";
+import {
+  DomainError,
+  NotFound,
+  Forbidden,
+  InvalidEventDate,
+  InvalidId,
+  IdempotencyKeyRequired,
+  IdempotencyKeyReused,
+} from "../domain/errors.js";
 import { isId } from "../domain/ids.js";
 import { BookingRepository } from "../repositories/bookingRepository.js";
 import { CatalogRepository } from "../repositories/catalogRepository.js";
@@ -33,41 +41,60 @@ function hashRequest(input) {
   return crypto.createHash("sha256").update(JSON.stringify([boothId, backdropId, eventDate, pkg])).digest("hex");
 }
 
-// returns { booking, replayed }. replayed is true when the key was seen before
-// and we're giving back the booking that the first request made.
+async function insertBooking(client, actor, input, now) {
+  const catalog = new CatalogRepository(client);
+  const booking = Booking.create({
+    customerId: actor.id,
+    booth: await catalog.findBooth(input.boothId),
+    backdrop: await catalog.findBackdrop(input.backdropId),
+    eventDate: input.eventDate,
+    pkg: input.package,
+    today: businessDate(now),
+  });
+  // throws BoothUnavailable if the booth is already taken that date
+  return new BookingRepository(client).insert(booking);
+}
+
+// returns { booking, replayed }, or throws the attempt's error.
+// the first attempt with a key runs and its outcome (booking or error) is saved
+// with the key. a retry with the same key and body gets that same outcome back,
+// marked replayed, and nothing runs again.
 export async function createBooking(actor, input, idempotencyKey, now) {
-  return withTransaction(async (client) => {
-    const bookings = new BookingRepository(client);
+  if (!idempotencyKey) throw new IdempotencyKeyRequired();
+  const requestHash = hashRequest(input);
+
+  const result = await withTransaction(async (client) => {
     const keys = new IdempotencyRepository(client);
 
-    if (idempotencyKey) {
-      const requestHash = hashRequest(input);
-      const claimed = await keys.claim(actor.id, idempotencyKey, requestHash);
-      if (!claimed) {
-        const previous = await keys.find(actor.id, idempotencyKey);
-        if (previous.requestHash !== requestHash) throw new IdempotencyKeyReused();
-        const booking = await bookings.findById(previous.bookingId);
-        return { booking: toBookingDto(booking), replayed: true };
-      }
+    const claimed = await keys.claim(actor.id, idempotencyKey, requestHash);
+    if (!claimed) {
+      const previous = await keys.find(actor.id, idempotencyKey);
+      if (previous.requestHash !== requestHash) throw new IdempotencyKeyReused();
+      return { ...previous.outcome, replayed: true };
     }
 
-    const catalog = new CatalogRepository(client);
-    const booking = Booking.create({
-      customerId: actor.id,
-      booth: await catalog.findBooth(input.boothId),
-      backdrop: await catalog.findBackdrop(input.backdropId),
-      eventDate: input.eventDate,
-      pkg: input.package,
-      today: businessDate(now),
-    });
-
-    // if the booth is taken this throws BoothUnavailable and the whole
-    // transaction rolls back, including the key we just claimed
-    const saved = await bookings.insert(booking);
-    if (idempotencyKey) await keys.attachBooking(actor.id, idempotencyKey, saved.id);
-
-    return { booking: toBookingDto(saved), replayed: false };
+    try {
+      const saved = await withSavepoint(client, () => insertBooking(client, actor, input, now));
+      const outcome = { booking: toBookingDto(saved) };
+      await keys.saveOutcome(actor.id, idempotencyKey, outcome, saved.id);
+      return { ...outcome, replayed: false };
+    } catch (err) {
+      // a broken rule (booth taken, bad date...) is the outcome of this attempt, so
+      // it's saved and the transaction commits. anything else (db down, a bug) rolls
+      // back everything, key included, so the client can retry
+      if (!(err instanceof DomainError)) throw err;
+      await keys.saveOutcome(actor.id, idempotencyKey, { error: { code: err.code, message: err.message } });
+      return { thrown: err };
+    }
   });
+
+  if (result.thrown) throw result.thrown;
+  if (result.error) {
+    const err = new DomainError(result.error.code, result.error.message);
+    err.replayed = true;
+    throw err;
+  }
+  return { booking: result.booking, replayed: result.replayed };
 }
 
 export async function getBooking(actor, id) {

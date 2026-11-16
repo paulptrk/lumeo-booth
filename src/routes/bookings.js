@@ -14,8 +14,9 @@ router.use(fakeAuth);
 router.post("/", express.json(), async (req, res) => {
   const key = req.get("Idempotency-Key");
   const { booking, replayed } = await bookingService.createBooking(req.user, req.body ?? {}, key, new Date());
+  // a replay gets the same status as the first attempt, the header just says it's a replay
   if (replayed) res.set("Idempotent-Replayed", "true");
-  res.status(replayed ? 200 : 201).json(booking);
+  res.status(201).json(booking);
 });
 
 router.get("/", async (req, res) => {

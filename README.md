@@ -54,4 +54,8 @@ POST body: `{ "boothId", "backdropId", "eventDate", "package" }`
 
 **Auth for now:** until login is done, `src/middleware/fakeAuth.js` reads `X-User-Id` (and `X-User-Role: staff`) from headers. Look up the dev user ids with `SELECT id, email FROM users`. The real middleware only needs to set `req.user = { id, role }`.
 
+## AI collaboration log
+
+[docs/AI_COLLABORATION.md](docs/AI_COLLABORATION.md) tracks where the AI assistant was wrong, incomplete or insecure and how it was fixed (course report requirement).
+
 To change the schema, add a new numbered file in `migrations/` (e.g. `003_...sql`). Don't edit one that's already been applied.

@@ -34,6 +34,16 @@ Then open http://localhost:3000/docs. Stop with `npm run db:down` (data stays in
 - Pick your own password in `.env` before the first `npm run db:up`. Postgres only reads it when the `pgdata` volume is first created, so changing it later needs `docker compose down -v` (this deletes the data) or an `ALTER USER`.
 - Migrations run every time the container starts and only apply new files. If the database isn't ready yet the container exits and restarts until it is.
 
+## Concurrency demo
+
+With the app running (Docker or `npm run dev`) and the db seeded:
+
+```bash
+npm run demo:concurrency
+```
+
+It fires 10 `POST /bookings` at once for the same booth and date and expects exactly one `201` and nine `409 booth_unavailable`. It then sends the same request with one `Idempotency-Key` 10 times at once and expects one `201` and nine `200` replays of the same booking. It also checks the database holds one booking, exits non-zero on any mismatch, and cancels its demo bookings afterwards. The reason it holds is explained at the top of [scripts/concurrency-demo.js](scripts/concurrency-demo.js): the unique partial index decides, not a check before the insert.
+
 ## Project structure
 
 ```

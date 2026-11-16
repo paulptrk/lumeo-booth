@@ -11,7 +11,8 @@
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "up": "docker compose up -d --build",
-    "seed:docker": "docker compose exec app node scripts/seed.js",
+    "demo:concurrency": "node --env-file-if-exists=.env scripts/concurrency-demo.js",
+    "seed:docker":"docker compose exec app node scripts/seed.js",
     "test": "node --env-file-if-exists=.env --test"
   },
   "dependencies": {

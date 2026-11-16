@@ -23,6 +23,24 @@ export const STAFF = "staff";
 export const PACKAGES = ["digital_only", "digital_plus_prints"];
 export const DEPOSIT_CENTS = 15000;
 
+// lumeo runs in montréal, so "today" is the date there, not in UTC (at 8 pm in
+// montréal it is already tomorrow in UTC). America/Toronto is the IANA zone
+// montréal uses; America/Montreal is an old alias for it
+export const BUSINESS_TIME_ZONE = "America/Toronto";
+
+const businessDateFormat = new Intl.DateTimeFormat("en-CA", {
+  timeZone: BUSINESS_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+// the "YYYY-MM-DD" date that the moment `now` falls on in montréal
+export function businessDate(now) {
+  const p = Object.fromEntries(businessDateFormat.formatToParts(now).map(({ type, value }) => [type, value]));
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
 export function isValidDate(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   // catches things like 2026-02-31

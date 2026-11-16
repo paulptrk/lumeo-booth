@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Booking, CANCELLED, CONFIRMED, PENDING_PAYMENT, DEPOSIT_CENTS } from "../../src/domain/booking.js";
+import { Booking, businessDate, CANCELLED, CONFIRMED, PENDING_PAYMENT, DEPOSIT_CENTS } from "../../src/domain/booking.js";
 import {
   Forbidden,
   BoothNotBookable,
@@ -55,6 +55,22 @@ test("create rejects past, today, and invalid dates", () => {
   assert.throws(() => newBooking({ eventDate: today }), InvalidEventDate);
   assert.throws(() => newBooking({ eventDate: "2026-02-31" }), InvalidEventDate);
   assert.throws(() => newBooking({ eventDate: "next friday" }), InvalidEventDate);
+});
+
+test("businessDate is the date in montréal, not in UTC", () => {
+  // 8 pm in montréal (EST, UTC-5) is already the next day in UTC
+  assert.equal(businessDate(new Date("2026-11-17T01:00:00Z")), "2026-11-16");
+  // summer is EDT, UTC-4
+  assert.equal(businessDate(new Date("2026-07-01T03:30:00Z")), "2026-06-30");
+  assert.equal(businessDate(new Date("2026-07-01T04:30:00Z")), "2026-07-01");
+  // same day in both
+  assert.equal(businessDate(new Date("2026-11-16T15:00:00Z")), "2026-11-16");
+});
+
+test("at 8 pm in montréal, tomorrow can be booked", () => {
+  const today = businessDate(new Date("2026-11-17T01:00:00Z"));
+  assert.equal(newBooking({ eventDate: "2026-11-17", today }).eventDate, "2026-11-17");
+  assert.throws(() => newBooking({ eventDate: "2026-11-16", today }), InvalidEventDate);
 });
 
 test("owner and staff can view, other customers can't", () => {

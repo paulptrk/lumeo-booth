@@ -5,7 +5,7 @@
 import crypto from "node:crypto";
 import { pool } from "../db/pool.js";
 import { withTransaction } from "../db/transaction.js";
-import { Booking, isValidDate, STAFF } from "../domain/booking.js";
+import { Booking, businessDate, isValidDate, STAFF } from "../domain/booking.js";
 import { NotFound, Forbidden, InvalidEventDate, InvalidId, IdempotencyKeyReused } from "../domain/errors.js";
 import { isId } from "../domain/ids.js";
 import { BookingRepository } from "../repositories/bookingRepository.js";
@@ -26,10 +26,6 @@ export function toBookingDto(b) {
     createdAt: b.createdAt,
     cancelledAt: b.cancelledAt,
   };
-}
-
-function today(now) {
-  return now.toISOString().slice(0, 10);
 }
 
 function hashRequest(input) {
@@ -62,7 +58,7 @@ export async function createBooking(actor, input, idempotencyKey, now) {
       backdrop: await catalog.findBackdrop(input.backdropId),
       eventDate: input.eventDate,
       pkg: input.package,
-      today: today(now),
+      today: businessDate(now),
     });
 
     // if the booth is taken this throws BoothUnavailable and the whole

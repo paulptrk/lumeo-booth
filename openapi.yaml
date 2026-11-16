@@ -334,7 +334,9 @@ components:
         eventDate:
           type: string
           format: date
-          description: A real calendar date in the future, `YYYY-MM-DD`
+          description: |
+            A real calendar date in the future, `YYYY-MM-DD`. "Future" means after today's date
+            in Montréal (America/Toronto), so tomorrow can be booked until midnight there.
           example: "2027-06-12"
         package:
           type: string

@@ -26,7 +26,7 @@ npm run up           # builds the image, starts db + app, applies migrations on 
 npm run seed:docker  # sample booths, backdrops and dev users (run once, safe to repeat)
 ```
 
-Then open http://localhost:3000/docs. Stop with `npm run db:down` (data stays in the `pgdata` volume).
+Then open http://localhost:3000/docs. Stop with `npm run down`, which stops both containers (data stays in the `pgdata` volume).
 
 - The app container needs port 3000. Stop `npm run dev` first, or the two will clash.
 - Inside the compose network the app reaches the database at `db:5432`. From your machine it is `localhost:5433` (what `.env` uses for `npm run dev` and `npm test`).

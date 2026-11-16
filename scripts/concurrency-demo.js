@@ -15,13 +15,18 @@
 // for the first to commit, then see its booking and replay it.
 //
 // run it against the running app:  npm run demo:concurrency
-// (BASE_URL defaults to http://localhost:3000, REQUESTS to 10)
+// (BASE_URL defaults to http://localhost:3000, REQUESTS to 10). the database
+// checks use DATABASE_URL from .env, so point both at the same deployment
 
 import crypto from "node:crypto";
 import { pool } from "../src/db/pool.js";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
 const N = Number(process.env.REQUESTS ?? 10);
+if (!Number.isInteger(N) || N < 2) {
+  console.error(`REQUESTS must be a whole number of at least 2 (got "${process.env.REQUESTS}")`);
+  process.exit(1);
+}
 const BOOTH = "booth_dslr_01";
 const BACKDROP = "backdrop_pillowcase_blue";
 
@@ -35,12 +40,10 @@ function randomFutureDate() {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-async function pickFreeDate(customerId) {
+async function pickFreeDate() {
   for (let i = 0; i < 20; i++) {
     const date = randomFutureDate();
-    const res = await fetch(`${BASE_URL}/booths/${BOOTH}/availability?date=${date}`, {
-      headers: { "X-User-Id": String(customerId) },
-    });
+    const res = await fetch(`${BASE_URL}/booths/${BOOTH}/availability?date=${date}`);
     if ((await res.json()).available) return date;
   }
   throw new Error("could not find a free date");
@@ -110,23 +113,33 @@ async function main() {
 
   console.log(`firing ${N} simultaneous requests per scenario at ${BASE_URL}`);
   const created = [];
+  try {
+    await runScenarios(customerId, created);
+  } finally {
+    // cancelling frees the dates again, so the demo leaves nothing booked, even if a step threw
+    for (const id of created) await cancelBooking(customerId, id);
+    console.log(`\ncleaned up: cancelled ${created.length} demo bookings`);
+  }
+}
 
+async function runScenarios(customerId, created) {
   // A: different keys, same booth and date
-  const dateA = await pickFreeDate(customerId);
+  const dateA = await pickFreeDate();
   const keysA = Array.from({ length: N }, () => crypto.randomUUID());
   const a = await fireAll(customerId, dateA, keysA);
+  created.push(...a.filter((r) => r.status === 201).map((r) => r.bookingId));
   printTable(`Scenario A: ${N} different requests for the same booth and date`, dateA, a);
   console.log("");
   check(countBy(a, 201) === 1, `exactly one 201 (got ${countBy(a, 201)})`);
   check(countBy(a, 409) === N - 1, `the other ${N - 1} are 409 (got ${countBy(a, 409)})`);
   check(a.filter((r) => r.status === 409).every((r) => r.code === "booth_unavailable"), "every 409 is booth_unavailable");
   check((await activeRows(dateA)) === 1, "database holds exactly one active booking for that booth and date");
-  created.push(...a.filter((r) => r.status === 201).map((r) => r.bookingId));
 
   // B: one key sent N times at once
-  const dateB = await pickFreeDate(customerId);
+  const dateB = await pickFreeDate();
   const sameKey = crypto.randomUUID();
   const b = await fireAll(customerId, dateB, Array(N).fill(sameKey));
+  created.push(...b.filter((r) => r.status === 201).map((r) => r.bookingId));
   printTable(`Scenario B: the same request (same Idempotency-Key) sent ${N} times`, dateB, b);
   console.log("");
   check(countBy(b, 201) === 1, `exactly one 201 (got ${countBy(b, 201)})`);
@@ -134,16 +147,12 @@ async function main() {
   check(b.filter((r) => r.status === 200).every((r) => r.replayed), "every 200 carries Idempotent-Replayed: true");
   check(new Set(b.map((r) => r.bookingId)).size === 1, "all responses return the same booking id");
   check((await activeRows(dateB)) === 1, "database holds exactly one booking for that date (no duplicates)");
-  created.push(...b.filter((r) => r.status === 201).map((r) => r.bookingId));
-
-  // cancelling frees the dates again, so the demo leaves nothing booked
-  for (const id of created) await cancelBooking(customerId, id);
-  console.log(`\ncleaned up: cancelled ${created.length} demo bookings`);
 }
 
 main()
   .catch((err) => {
-    const unreachable = err.cause?.code === "ECONNREFUSED" || err.message === "fetch failed";
+    // node's fetch reports every network failure (refused, dns, reset) as "fetch failed"
+    const unreachable = err.message === "fetch failed";
     console.error(unreachable ? `cannot reach ${BASE_URL}. is the app running? (npm run up)` : err.message);
     failures.push("script error");
   })

@@ -9,7 +9,7 @@
     "migrate": "node --env-file-if-exists=.env scripts/migrate.js",
     "seed": "node --env-file-if-exists=.env scripts/seed.js",
     "db:up": "docker compose up -d db",
-    "db:down": "docker compose down",
+    "down": "docker compose down",
     "up": "docker compose up -d --build",
     "demo:concurrency": "node --env-file-if-exists=.env scripts/concurrency-demo.js",
     "seed:docker": "docker compose exec app node scripts/seed.js",

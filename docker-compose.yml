@@ -14,7 +14,9 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      # /health also checks the db, so a db outage marks the app unhealthy too
+      # (a readiness check, not liveness). docker doesn't restart on unhealthy
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 10s
       timeout: 3s
       retries: 5

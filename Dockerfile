@@ -3,9 +3,10 @@ FROM node:22-alpine
 ENV NODE_ENV=production
 WORKDIR /app
 
-# dependencies first so this layer is cached until package files change
+# dependencies first so this layer is cached until package files change.
+# NODE_ENV=production already makes npm ci skip the dev dependencies
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
 COPY --chown=node:node src ./src
 COPY --chown=node:node scripts ./scripts

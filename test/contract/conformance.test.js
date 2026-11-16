@@ -3,50 +3,45 @@
 // that operation returns, so the spec and the code can't drift apart.
 // needs the docker db running. creates its own users and deletes them at the end.
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import YAML from "yaml";
-import { createApp } from "../../src/app.js";
+import { createApp, apiRouters } from "../../src/app.js";
 import { pool } from "../../src/db/pool.js";
-import healthRouter from "../../src/routes/health.js";
-import boothsRouter from "../../src/routes/booths.js";
-import bookingsRouter from "../../src/routes/bookings.js";
-
-const specPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "openapi.yaml");
-const spec = YAML.parse(fs.readFileSync(specPath, "utf8"));
+import docsRouter, { spec } from "../../src/routes/docs.js";
 
 // --- spec helpers -----------------------------------------------------------
 
+// a copy of the spec made once for checking responses:
+// - each "#/..." ref becomes "spec#/...", because ajv resolves a ref against the
+//   schema being compiled, not against the whole spec (registered below as "spec")
+// - every object schema rejects properties the spec doesn't list, so a leaked
+//   field (a stack trace, a password hash) fails. only the test is this strict:
+//   the published spec stays open, so adding a field later isn't a breaking change
+function forAjv(node) {
+  if (Array.isArray(node)) return node.map(forAjv);
+  if (node === null || typeof node !== "object") return node;
+  const copy = {};
+  for (const [key, value] of Object.entries(node)) copy[key] = key === "$ref" ? `spec${value}` : forAjv(value);
+  if (copy.type === "object" && copy.properties && !("additionalProperties" in copy)) copy.additionalProperties = false;
+  return copy;
+}
+const checked = forAjv(spec);
+
 const ajv = new Ajv({ strict: false, allErrors: true });
 addFormats(ajv);
+ajv.addSchema(checked, "spec");
 
-// follows { $ref: "#/components/..." } to the object it points at
+// follows { $ref: "spec#/components/..." } to the object it points at
 function deref(node) {
-  while (node && node.$ref) {
-    node = node.$ref.replace(/^#\//, "").split("/").reduce((obj, key) => obj[key], spec);
-  }
+  while (node?.$ref) node = node.$ref.slice("spec#/".length).split("/").reduce((obj, key) => obj[key], checked);
   return node;
 }
 
-const validators = new Map();
-function schemaValidator(schema) {
-  const key = JSON.stringify(schema);
-  if (!validators.has(key)) {
-    // refs inside the schema are relative to the whole spec, not to the schema itself
-    validators.set(key, ajv.compile(JSON.parse(key.replaceAll('"#/', '"spec#/'))));
-  }
-  return validators.get(key);
-}
-ajv.addSchema(spec, "spec");
-
 // "/bookings/{id}/cancel" -> the operation object, or undefined
 function operation(method, specPathName) {
-  return spec.paths[specPathName]?.[method.toLowerCase()];
+  return checked.paths[specPathName]?.[method.toLowerCase()];
 }
 
 // --- the call + check -------------------------------------------------------
@@ -77,14 +72,14 @@ async function call(method, specPathName, { path: urlPath = specPathName, user, 
   const mediaType = response.content?.["application/json"];
   if (mediaType) {
     assert.match(res.headers.get("content-type") ?? "", /application\/json/, `${label}: content type`);
-    const validate = schemaValidator(mediaType.schema);
+    const validate = ajv.compile(mediaType.schema); // ajv caches by schema object
     assert.ok(validate(json), `${label}: body does not match the spec: ${JSON.stringify(validate.errors)}\nbody: ${text}`);
   }
 
   for (const [name, header] of Object.entries(response.headers ?? {})) {
     const value = res.headers.get(name);
     assert.ok(value !== null, `${label}: documented header ${name} is missing`);
-    const validate = schemaValidator(deref(header).schema);
+    const validate = ajv.compile(deref(header).schema);
     assert.ok(validate(value), `${label}: header ${name}="${value}" does not match the spec`);
   }
 
@@ -129,19 +124,27 @@ after(async () => {
 // --- the spec describes exactly the routes that exist -----------------------
 
 // turns express's "/:id/cancel" into the spec's "/{id}/cancel"
-function routesOf(router, prefix = "") {
+function routesOf(router, prefix) {
   return router.stack
     .filter((layer) => layer.route)
     .flatMap((layer) =>
       Object.keys(layer.route.methods).map((method) => {
-        const p = (prefix + layer.route.path).replace(/:(\w+)/g, "{$1}").replace(/\/$/, "") || "/";
+        const p = (prefix + layer.route.path).replace(/:(\w+)/g, "{$1}").replace(/\/+/g, "/").replace(/(.)\/$/, "$1");
         return `${method.toUpperCase()} ${p}`;
       })
     );
 }
 
+test("the app mounts only the docs router and the routers listed in apiRouters", () => {
+  // a router mounted any other way would skip the route check below
+  const app = createApp();
+  const mounted = app.router.stack.filter((layer) => Array.isArray(layer.handle.stack)).map((layer) => layer.handle);
+  assert.deepEqual(mounted, [docsRouter, ...apiRouters.map((r) => r.router)]);
+  assert.equal(app.router.stack.filter((layer) => layer.route).length, 0, "routes defined directly on the app");
+});
+
 test("every route in the code is in the spec, and every operation in the spec has a route", () => {
-  const inCode = [...routesOf(healthRouter), ...routesOf(boothsRouter), ...routesOf(bookingsRouter, "/bookings")].sort();
+  const inCode = apiRouters.flatMap(({ prefix, router }) => routesOf(router, prefix)).sort();
   const inSpec = Object.entries(spec.paths)
     .flatMap(([p, ops]) => Object.keys(ops).map((method) => `${method.toUpperCase()} ${p}`))
     .sort();
@@ -263,6 +266,21 @@ test("protected operations: missing, malformed and unknown X-User-Id are 401", a
   assert.equal((await call("POST", "/bookings", { body: newBooking("2094-03-07") })).status, 401);
   assert.equal((await call("GET", "/bookings/{id}", { path: "/bookings/1" })).status, 401);
   assert.equal((await call("PATCH", "/bookings/{id}/cancel", { path: "/bookings/1/cancel" })).status, 401);
+});
+
+// regression for the old fakeAuth, which trusted an X-User-Role header. keep this
+// test when the real auth replaces X-User-Id: only how the user is sent changes
+test("the role comes from the database: a customer sending X-User-Role: staff is still a customer", async () => {
+  const { body: kims } = await call("POST", "/bookings", { user: kim, body: newBooking("2094-04-05") });
+  const asStaff = { user: ana, headers: { "X-User-Role": "staff" } };
+
+  const list = await call("GET", "/bookings", asStaff);
+  assert.ok(list.body.every((b) => b.customerId === String(ana.id)), "saw other customers' bookings");
+
+  const other = await call("GET", "/bookings/{id}", { ...asStaff, path: `/bookings/${kims.id}` });
+  assert.equal(other.status, 403);
+  const cancel = await call("PATCH", "/bookings/{id}/cancel", { ...asStaff, path: `/bookings/${kims.id}/cancel` });
+  assert.equal(cancel.status, 403);
 });
 
 // --- reading and cancelling -------------------------------------------------

@@ -1,7 +1,12 @@
 import express, { Router } from "express";
 import * as bookingService from "../services/bookingService.js";
+import { fakeAuth } from "../middleware/fakeAuth.js";
 
 const router = Router();
+
+// every booking route needs a logged-in user.
+// TODO: swap fakeAuth for the real jwt middleware (it only has to set req.user = { id, role })
+router.use(fakeAuth);
 
 // http in, service call, http out. no rules here.
 // only this route has a body, so it is parsed here, after auth: an unauthenticated

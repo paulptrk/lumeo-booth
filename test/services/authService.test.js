@@ -57,10 +57,3 @@ test("digits that overflow a bigint are Unauthenticated, not a postgres range er
 test("unknown numeric id is Unauthenticated", async () => {
   await assert.rejects(resolveActor("999999999"), Unauthenticated);
 });
-
-test("resolveActor takes only an id, so a client cannot choose its own role", async () => {
-  // regression for the old fakeAuth that trusted X-User-Role: staff
-  assert.equal(resolveActor.length, 1);
-  const actor = await resolveActor(customer);
-  assert.notEqual(actor.role, "staff");
-});

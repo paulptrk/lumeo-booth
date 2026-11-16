@@ -24,6 +24,16 @@ Examples where the AI assistant was wrong or incomplete, and how it was fixed (S
 
 ---
 
+## 3. Database credentials hard-coded in docker-compose.yml
+
+**What the AI did:** When adding the app service to `docker-compose.yml`, it wrote the full database url with the username and password in plain text (`postgres://lumeo:lumeo@db:5432/lumeo`), duplicating the credentials already hard-coded for the `db` service. Its plan even justified it as "dev-only credentials already in compose, not secrets", and it committed the file that way.
+
+**Prompt that called out the error:** "There is an issue with the docker compose yml. The creds for postgress are exposed. They should be env vars and not plain text in the docker compose"
+
+**What happened:** The course requires no secrets in source (SOEN 387 §4), and a committed compose file is source. Calling the password "dev-only" was an excuse, not a reason, and copying it into a second place made it worse. The fix moved the user, password and database name (and the healthcheck's hard-coded user) into `POSTGRES_*` variables read from the gitignored `.env`, with no defaults so compose refuses to start if one is missing. `.env.example` gets a placeholder password.
+
+---
+
 ## Unconfirmed ideas
 
 Design choices already in the code that may be worth writing up **only if** an AI session actually got them wrong first: the availability race (unique partial index instead of check-then-insert), idempotency keys scoped per customer, the request-hash check on key reuse, claiming the key in the same transaction as the insert, and `FOR UPDATE` on cancel.

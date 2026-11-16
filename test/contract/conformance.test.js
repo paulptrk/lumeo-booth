@@ -58,12 +58,9 @@ let baseUrl;
 async function call(method, specPathName, { path: urlPath = specPathName, user, body, raw, headers = {} } = {}) {
   const init = { method, headers: { ...headers } };
   if (user) init.headers["X-User-Id"] = String(user.id);
-  if (raw !== undefined) {
-    init.headers["Content-Type"] = "application/json";
-    init.body = raw;
-  } else if (body !== undefined) {
-    init.headers["Content-Type"] = "application/json";
-    init.body = JSON.stringify(body);
+  if (raw !== undefined || body !== undefined) {
+    init.headers["Content-Type"] ??= "application/json";
+    init.body = raw ?? JSON.stringify(body);
   }
 
   const res = await fetch(baseUrl + urlPath, init);
@@ -235,6 +232,25 @@ test("POST /bookings: invalid JSON is 400 invalid_json", async () => {
   const res = await call("POST", "/bookings", { user: ana, raw: "{not json" });
   assert.equal(res.status, 400);
   assert.equal(res.body.error.code, "invalid_json");
+});
+
+test("POST /bookings: a body over 100 KB is 413 and an unknown charset is 415, never 500", async () => {
+  const big = await call("POST", "/bookings", { user: ana, raw: JSON.stringify({ x: "a".repeat(200_000) }) });
+  assert.equal(big.status, 413);
+  assert.equal(big.body.error.code, "invalid_body");
+
+  const charset = await call("POST", "/bookings", {
+    user: ana,
+    raw: "{}",
+    headers: { "Content-Type": "application/json; charset=latin9" },
+  });
+  assert.equal(charset.status, 415);
+  assert.equal(charset.body.error.code, "invalid_body");
+});
+
+test("auth is checked before the body is read: bad JSON with no X-User-Id is 401", async () => {
+  assert.equal((await call("POST", "/bookings", { raw: "{not json" })).status, 401);
+  assert.equal((await call("PATCH", "/bookings/{id}/cancel", { path: "/bookings/1/cancel", raw: "{not json" })).status, 401);
 });
 
 test("protected operations: missing, malformed and unknown X-User-Id are 401", async () => {

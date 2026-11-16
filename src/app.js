@@ -9,8 +9,6 @@ import { notFound, errorHandler } from "./middleware/errorHandler.js";
 export function createApp() {
   const app = express();
 
-  app.use(express.json());
-
   app.use(healthRouter);
   app.use(docsRouter);
   app.use(boothsRouter);

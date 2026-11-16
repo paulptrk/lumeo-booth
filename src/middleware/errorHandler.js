@@ -1,7 +1,8 @@
 import { DomainError } from "../domain/errors.js";
 
-// error code -> http status. add new codes here when you add a domain error
-const STATUS = {
+// error code -> http status. every DomainError code needs an entry here, and in
+// the Error code enum in openapi.yaml (test/middleware/errorHandler.test.js checks both)
+export const STATUS = {
   unauthenticated: 401,
   invalid_id: 422,
   not_found: 404,
@@ -15,23 +16,32 @@ const STATUS = {
   idempotency_key_reused: 422,
 };
 
+function send(res, status, code, message) {
+  res.status(status).json({ error: { code, message } });
+}
+
 export function notFound(req, res) {
-  res.status(404).json({ error: { code: "not_found", message: "Route not found" } });
+  send(res, 404, "not_found", "Route not found");
 }
 
 // eslint-disable-next-line no-unused-vars
 export function errorHandler(err, req, res, next) {
-  if (err instanceof DomainError) {
-    const status = STATUS[err.code] ?? 400;
-    return res.status(status).json({ error: { code: err.code, message: err.message } });
+  if (err instanceof DomainError && STATUS[err.code]) {
+    return send(res, STATUS[err.code], err.code, err.message);
   }
 
-  // bad json body
+  // errors from express.json(): bad json, body too large (413), unsupported
+  // charset or encoding (415). body-parser marks the client's mistakes with
+  // expose and a 4xx status, and their messages are safe to show
   if (err.type === "entity.parse.failed") {
-    return res.status(400).json({ error: { code: "invalid_json", message: "Request body is not valid JSON" } });
+    return send(res, 400, "invalid_json", "Request body is not valid JSON");
+  }
+  if (err.expose && err.status >= 400 && err.status < 500) {
+    return send(res, err.status, "invalid_body", err.message);
   }
 
+  // anything else is our bug, including a DomainError missing from STATUS.
   // never send stack traces to the client
   console.error(err);
-  res.status(500).json({ error: { code: "internal_error", message: "Something went wrong" } });
+  send(res, 500, "internal_error", "Something went wrong");
 }

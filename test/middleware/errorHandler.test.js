@@ -2,8 +2,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { errorHandler } from "../../src/middleware/errorHandler.js";
-import { InvalidId, Unauthenticated, NotFound, BoothUnavailable } from "../../src/domain/errors.js";
+import { errorHandler, STATUS } from "../../src/middleware/errorHandler.js";
+import { spec } from "../../src/routes/docs.js";
+import * as errors from "../../src/domain/errors.js";
 
 function run(err) {
   const res = {
@@ -14,16 +15,41 @@ function run(err) {
   return res;
 }
 
-test("domain errors map to the right client error status", () => {
-  assert.equal(run(new InvalidId()).code, 422);
-  assert.equal(run(new Unauthenticated()).code, 401);
-  assert.equal(run(new NotFound()).code, 404);
-  assert.equal(run(new BoothUnavailable()).code, 409);
+const domainCodes = Object.values(errors)
+  .filter((E) => E.prototype instanceof errors.DomainError)
+  .map((E) => new E().code);
+
+test("every domain error is a 4xx, so a new one can't silently fall through", () => {
+  for (const code of domainCodes) {
+    assert.ok(STATUS[code] >= 400 && STATUS[code] < 500, `${code} is missing from STATUS`);
+  }
 });
 
-test("a malformed id is a 4xx with the invalid_id code and no stack", () => {
-  const res = run(new InvalidId());
-  assert.ok(res.code >= 400 && res.code < 500);
+test("the spec's error code enum lists exactly the codes the api can send", () => {
+  const inSpec = spec.components.schemas.Error.properties.error.properties.code.enum;
+  const sent = [...Object.keys(STATUS), "invalid_json", "invalid_body", "internal_error"];
+  assert.deepEqual([...inSpec].sort(), sent.sort());
+});
+
+test("a domain error becomes { error: { code, message } } and nothing else", () => {
+  const res = run(new errors.InvalidId());
+  assert.equal(res.code, 422);
   assert.deepEqual(Object.keys(res.body.error).sort(), ["code", "message"]);
   assert.equal(res.body.error.code, "invalid_id");
+});
+
+test("body-parser errors are the client's fault: 400, 413, 415, never 500", () => {
+  assert.equal(run({ type: "entity.parse.failed", expose: true, status: 400 }).body.error.code, "invalid_json");
+  const tooLarge = run({ type: "entity.too.large", expose: true, status: 413, message: "request entity too large" });
+  assert.deepEqual([tooLarge.code, tooLarge.body.error.code], [413, "invalid_body"]);
+  assert.equal(run({ type: "charset.unsupported", expose: true, status: 415, message: "x" }).code, 415);
+});
+
+test("an unmapped domain error or a plain Error is a 500 with no details", (t) => {
+  t.mock.method(console, "error", () => {});
+  for (const err of [new errors.DomainError("made_up", "secret detail"), new Error("secret detail")]) {
+    const res = run(err);
+    assert.equal(res.code, 500);
+    assert.deepEqual(res.body, { error: { code: "internal_error", message: "Something went wrong" } });
+  }
 });

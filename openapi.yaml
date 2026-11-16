@@ -158,6 +158,16 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "413":
+          description: The request body is larger than 100 KB (`invalid_body`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "415":
+          description: The request body uses an unsupported charset or encoding (`invalid_body`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "409":
           description: The booth is already booked on that date (`booth_unavailable`)
           content:
@@ -383,6 +393,7 @@ components:
                 - not_found
                 - invalid_id
                 - invalid_json
+                - invalid_body
                 - booth_unavailable
                 - booking_cancelled
                 - booth_not_bookable

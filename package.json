@@ -17,5 +17,9 @@
     "pg": "^8.23.1",
     "swagger-ui-express": "^5.0.1",
     "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1"
   }
 }

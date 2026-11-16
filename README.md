@@ -17,6 +17,22 @@ npm run dev        # http://localhost:3000
 
 Check it works: `GET http://localhost:3000/health` should return `{"status":"ok","db":"up"}`.
 
+## Run everything in Docker
+
+Runs the api and the database together. Needs Docker Desktop only (no local Node).
+
+```bash
+npm run up           # builds the image, starts db + app, applies migrations on startup
+npm run seed:docker  # sample booths, backdrops and dev users (run once, safe to repeat)
+```
+
+Then open http://localhost:3000/docs. Stop with `npm run db:down` (data stays in the `pgdata` volume).
+
+- The app container needs port 3000. Stop `npm run dev` first, or the two will clash.
+- Inside the compose network the app reaches the database at `db:5432`. From your machine it is `localhost:5433` (what `.env` uses for `npm run dev` and `npm test`).
+- The image runs as a non-root user with `NODE_ENV=production` and does not contain `.env`. The database url comes from the compose file.
+- Migrations run every time the container starts and only apply new files. If the database isn't ready yet the container exits and restarts until it is.
+
 ## Project structure
 
 ```

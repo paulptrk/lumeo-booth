@@ -56,12 +56,16 @@ src/
   db/            postgres connection pool
 migrations/      numbered .sql files, run in order by `npm run migrate`
 seeds/           sample booths, backdrops and two dev users
-scripts/         migrate / seed / test scripts
+scripts/         migrate, seed and the concurrency demo
+test/            domain, service, middleware and contract tests
+openapi.yaml     the api contract (served at /docs)
 ```
 
 Dependencies point inward: routes and repositories can import from `domain/`, but `domain/` never imports anything from outside `domain/`.
 
-Tests: `npm test` (uses node's built-in test runner, no db needed for domain tests).
+To change the schema, add a new numbered file in `migrations/` (e.g. `003_...sql`). Don't edit one that's already been applied.
+
+Tests: `npm test` (node's built-in test runner). Domain tests need no database. The service and contract tests need postgres running (`npm run db:up` or `npm run up`) and create and delete their own test users. `test/contract/conformance.test.js` calls every endpoint and checks each response against `openapi.yaml`, and fails if a route exists in Express but not in the spec.
 
 Errors: throw a `DomainError` subclass (from `src/domain/errors.js`) with a `code`. Services never set http status codes. The `STATUS` map in `src/middleware/errorHandler.js` turns the code into a status.
 
@@ -76,6 +80,9 @@ Errors: throw a `DomainError` subclass (from `src/domain/errors.js`) with a `cod
 | GET | `/bookings` | yes | customers get their own, staff get all |
 | GET | `/bookings/:id` | yes | owner or staff |
 | PATCH | `/bookings/:id/cancel` | yes | owner or staff |
+| GET | `/health` | no | `{"status":"ok","db":"up"}`, 503 if the db is down |
+| GET | `/docs` | no | Swagger UI |
+| GET | `/openapi.yaml` | no | the raw spec |
 
 POST body: `{ "boothId", "backdropId", "eventDate", "package" }`
 
@@ -86,5 +93,3 @@ POST body: `{ "boothId", "backdropId", "eventDate", "package" }`
 ## AI collaboration log
 
 [docs/AI_COLLABORATION.md](docs/AI_COLLABORATION.md) tracks where the AI assistant was wrong, incomplete or insecure and how it was fixed (course report requirement).
-
-To change the schema, add a new numbered file in `migrations/` (e.g. `003_...sql`). Don't edit one that's already been applied.

@@ -1,0 +1,394 @@
+openapi: 3.0.3
+info:
+  title: Lumeo Booth API
+  version: 1.0.0
+  description: |
+    Booking and deposit service for Lumeo photobooth rentals.
+
+    **Authentication (temporary).** Protected operations read the caller's user id from the
+    `X-User-Id` header and load that user from the database. The role (`customer` or `staff`)
+    always comes from the user's record, never from the request. This will be replaced by
+    bearer tokens; the rest of the contract stays the same.
+
+    **Errors.** Every error response has the same shape: `{ "error": { "code", "message" } }`.
+    `code` is stable and meant for programs; `message` is meant for people.
+
+    **Idempotency.** `POST /bookings` accepts an optional `Idempotency-Key` header. Retrying
+    with the same key and the same body returns the original booking (200) instead of creating
+    a second one. The same key with a different body is rejected.
+servers:
+  - url: http://localhost:3000
+    description: Local development
+tags:
+  - name: Catalog
+    description: Public browsing, no login needed
+  - name: Bookings
+    description: Requires `X-User-Id`
+  - name: Operations
+    description: Service health
+
+paths:
+  /health:
+    get:
+      tags: [Operations]
+      summary: Health check
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Service and database are up
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: Service is up but the database is not reachable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /booths:
+    get:
+      tags: [Catalog]
+      summary: List active booths
+      operationId: listBooths
+      security: []
+      responses:
+        "200":
+          description: Active booths only
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Booth" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /backdrops:
+    get:
+      tags: [Catalog]
+      summary: List active backdrops
+      operationId: listBackdrops
+      security: []
+      responses:
+        "200":
+          description: Active backdrops only
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Backdrop" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /booths/{id}/availability:
+    get:
+      tags: [Catalog]
+      summary: Check whether a booth is free on a date
+      description: |
+        For showing a calendar only. The result can be stale by the time the client books, so
+        the real check happens when the booking is created (`POST /bookings` returns 409 if the
+        booth was taken in the meantime).
+      operationId: getBoothAvailability
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Booth id
+          schema: { type: string, example: booth_dslr_01 }
+        - name: date
+          in: query
+          required: true
+          description: Event date, `YYYY-MM-DD`
+          schema: { type: string, format: date, example: "2027-06-12" }
+      responses:
+        "200":
+          description: Availability for that booth and date
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Availability" }
+        "404":
+          description: No such booth (`not_found`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: The date is missing or not a real calendar date (`invalid_event_date`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /bookings:
+    post:
+      tags: [Bookings]
+      summary: Create a booking
+      description: |
+        Creates a booking with status `pending_payment` and a fixed deposit. A booth can have
+        only one active (not cancelled) booking per date; if two requests race for the same
+        booth and date, exactly one wins and the rest get 409.
+      operationId: createBooking
+      security:
+        - UserIdHeader: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateBookingRequest" }
+      responses:
+        "201":
+          description: Booking created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Booking" }
+        "200":
+          description: |
+            This `Idempotency-Key` was already used with the same body. The original booking
+            is returned and nothing new is created.
+          headers:
+            Idempotent-Replayed:
+              description: Always `true` on a replay
+              schema: { type: string, enum: ["true"] }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Booking" }
+        "400":
+          description: The request body is not valid JSON (`invalid_json`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "409":
+          description: The booth is already booked on that date (`booth_unavailable`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: |
+            The request is well formed but not acceptable. `code` is one of
+            `booth_not_bookable`, `backdrop_not_available`, `invalid_package`,
+            `invalid_event_date` or `idempotency_key_reused`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/InternalError" }
+    get:
+      tags: [Bookings]
+      summary: List bookings
+      description: Customers get their own bookings. Staff get all bookings.
+      operationId: listBookings
+      security:
+        - UserIdHeader: []
+      responses:
+        "200":
+          description: Bookings ordered by event date
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Booking" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /bookings/{id}:
+    get:
+      tags: [Bookings]
+      summary: Get one booking
+      description: Allowed for the booking's owner and for staff.
+      operationId: getBooking
+      security:
+        - UserIdHeader: []
+      parameters:
+        - $ref: "#/components/parameters/BookingId"
+      responses:
+        "200":
+          description: The booking
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Booking" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/BookingNotFound" }
+        "422": { $ref: "#/components/responses/InvalidId" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /bookings/{id}/cancel:
+    patch:
+      tags: [Bookings]
+      summary: Cancel a booking
+      description: |
+        Allowed for the booking's owner and for staff. Cancelling frees the booth for that date.
+        Cancelling an already cancelled booking succeeds and changes nothing.
+      operationId: cancelBooking
+      security:
+        - UserIdHeader: []
+      parameters:
+        - $ref: "#/components/parameters/BookingId"
+      responses:
+        "200":
+          description: The booking, now cancelled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Booking" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/BookingNotFound" }
+        "422": { $ref: "#/components/responses/InvalidId" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+components:
+  securitySchemes:
+    UserIdHeader:
+      type: apiKey
+      in: header
+      name: X-User-Id
+      description: |
+        Temporary until bearer tokens exist. The numeric id of an existing user. A missing,
+        malformed or unknown id returns 401 `unauthenticated`. The role is read from the
+        user's record, so sending a role header has no effect.
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Any string that is unique per intended booking (a UUID works well). Keys are scoped to
+        the caller, so two customers can't collide.
+      schema: { type: string, example: 6f1c1d1e-7a0c-4f3e-9d51-3b2f5a0b8c11 }
+    BookingId:
+      name: id
+      in: path
+      required: true
+      description: Booking id, a positive whole number
+      schema: { type: string, pattern: "^[1-9][0-9]{0,18}$", example: "42" }
+
+  responses:
+    Unauthenticated:
+      description: Missing, malformed or unknown `X-User-Id` (`unauthenticated`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: The booking belongs to someone else and the caller is not staff (`forbidden`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BookingNotFound:
+      description: No booking with that id (`not_found`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InvalidId:
+      description: The id is not a positive whole number that fits in 64 bits (`invalid_id`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InternalError:
+      description: Unexpected server error. Details are logged, never returned (`internal_error`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Health:
+      type: object
+      required: [status, db]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        db: { type: string, enum: [up, down] }
+      example: { status: ok, db: up }
+
+    Booth:
+      type: object
+      required: [id, name, type, basePriceCents, active]
+      properties:
+        id: { type: string, example: booth_dslr_01 }
+        name: { type: string, example: DSLR Booth }
+        type: { type: string, example: dslr }
+        basePriceCents: { type: integer, minimum: 0, example: 45000 }
+        active: { type: boolean }
+
+    Backdrop:
+      type: object
+      required: [id, name, active]
+      properties:
+        id: { type: string, example: backdrop_pillowcase_blue }
+        name: { type: string, example: Pillowcase - Blue }
+        active: { type: boolean }
+
+    Availability:
+      type: object
+      required: [boothId, date, available]
+      properties:
+        boothId: { type: string, example: booth_dslr_01 }
+        date: { type: string, format: date, example: "2027-06-12" }
+        available: { type: boolean }
+
+    CreateBookingRequest:
+      type: object
+      required: [boothId, backdropId, eventDate, package]
+      properties:
+        boothId: { type: string, example: booth_dslr_01 }
+        backdropId: { type: string, example: backdrop_pillowcase_blue }
+        eventDate:
+          type: string
+          format: date
+          description: A real calendar date in the future, `YYYY-MM-DD`
+          example: "2027-06-12"
+        package:
+          type: string
+          enum: [digital_only, digital_plus_prints]
+
+    Booking:
+      type: object
+      required:
+        [id, customerId, boothId, backdropId, eventDate, package, status, depositCents, createdAt, cancelledAt]
+      properties:
+        id: { type: string, example: "42" }
+        customerId: { type: string, example: "7" }
+        boothId: { type: string, example: booth_dslr_01 }
+        backdropId: { type: string, example: backdrop_pillowcase_blue }
+        eventDate: { type: string, format: date, example: "2027-06-12" }
+        package:
+          type: string
+          enum: [digital_only, digital_plus_prints]
+        status:
+          type: string
+          enum: [pending_payment, confirmed, cancelled]
+        depositCents: { type: integer, minimum: 0, example: 15000 }
+        createdAt: { type: string, format: date-time }
+        cancelledAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null unless the booking is cancelled
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable, machine-readable error code
+              enum:
+                - unauthenticated
+                - forbidden
+                - not_found
+                - invalid_id
+                - invalid_json
+                - booth_unavailable
+                - booking_cancelled
+                - booth_not_bookable
+                - backdrop_not_available
+                - invalid_package
+                - invalid_event_date
+                - idempotency_key_reused
+                - internal_error
+            message: { type: string }
+      example:
+        error: { code: booth_unavailable, message: This booth is already booked on that date }

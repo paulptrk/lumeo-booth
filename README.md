@@ -52,6 +52,8 @@ Errors: throw a `DomainError` subclass (from `src/domain/errors.js`) with a `cod
 
 POST body: `{ "boothId", "backdropId", "eventDate", "package" }`
 
+**API contract:** [openapi.yaml](openapi.yaml) is the source of truth. With the server running, browse it at http://localhost:3000/docs (Swagger UI, use "Authorize" and enter a user id) or fetch the raw file from http://localhost:3000/openapi.yaml.
+
 **Auth for now:** until login is done, `src/middleware/fakeAuth.js` reads `X-User-Id` from the headers and loads that user from the `users` table. The role (customer or staff) comes from `users.role`, never from the request. A missing, non-numeric or unknown id returns 401 `unauthenticated`. Look up the dev user ids with `SELECT id, email FROM users`. The real middleware only needs to set `req.user = { id, role }` (it can reuse `resolveActor` in `src/services/authService.js`).
 
 ## AI collaboration log

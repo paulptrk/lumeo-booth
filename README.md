@@ -8,7 +8,7 @@ Needs Node 22+ and Docker Desktop.
 
 ```bash
 npm install
-cp .env.example .env
+cp .env.example .env   # then set your own POSTGRES_PASSWORD (and the same one in DATABASE_URL)
 npm run db:up      # starts postgres in docker
 npm run migrate
 npm run seed
@@ -30,7 +30,8 @@ Then open http://localhost:3000/docs. Stop with `npm run db:down` (data stays in
 
 - The app container needs port 3000. Stop `npm run dev` first, or the two will clash.
 - Inside the compose network the app reaches the database at `db:5432`. From your machine it is `localhost:5433` (what `.env` uses for `npm run dev` and `npm test`).
-- The image runs as a non-root user with `NODE_ENV=production` and does not contain `.env`. The database url comes from the compose file.
+- The image runs as a non-root user with `NODE_ENV=production` and does not contain `.env`. The database user, password and name come from your `.env` (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`); compose refuses to start if they're missing, and there are no passwords in `docker-compose.yml`.
+- Pick your own password in `.env` before the first `npm run db:up`. Postgres only reads it when the `pgdata` volume is first created, so changing it later needs `docker compose down -v` (this deletes the data) or an `ALTER USER`.
 - Migrations run every time the container starts and only apply new files. If the database isn't ready yet the container exits and restarts until it is.
 
 ## Project structure

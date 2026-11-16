@@ -8,8 +8,8 @@ services:
     environment:
       PORT: 3000
       # inside the compose network the db is "db:5432", not localhost:5433.
-      # these are the local dev credentials defined for the db below
-      DATABASE_URL: postgres://lumeo:lumeo@db:5432/lumeo
+      # built from the same POSTGRES_* values as the db service, read from .env
+      DATABASE_URL: postgres://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
     depends_on:
       db:
         condition: service_healthy
@@ -23,16 +23,19 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_USER: lumeo
-      POSTGRES_PASSWORD: lumeo
-      POSTGRES_DB: lumeo
+      # values come from .env (copy .env.example). there are no defaults on
+      # purpose, so a missing value stops compose instead of using a known password
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
     ports:
       # 5433 on the host so it doesn't clash with a local postgres install
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U lumeo"]
+      # $$ so the container expands these, not compose
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       retries: 10
 

@@ -4,7 +4,7 @@
 
 import { Booking } from "../domain/booking.js";
 import { BoothUnavailable } from "../domain/errors.js";
-import { isId } from "./ids.js";
+import { isId } from "../domain/ids.js";
 
 const UNIQUE_VIOLATION = "23505";
 const ONE_PER_BOOTH_DATE = "bookings_one_active_per_booth_date";

@@ -6,7 +6,8 @@ import crypto from "node:crypto";
 import { pool } from "../db/pool.js";
 import { withTransaction } from "../db/transaction.js";
 import { Booking, isValidDate, STAFF } from "../domain/booking.js";
-import { NotFound, Forbidden, InvalidEventDate, IdempotencyKeyReused } from "../domain/errors.js";
+import { NotFound, Forbidden, InvalidEventDate, InvalidId, IdempotencyKeyReused } from "../domain/errors.js";
+import { isId } from "../domain/ids.js";
 import { BookingRepository } from "../repositories/bookingRepository.js";
 import { CatalogRepository } from "../repositories/catalogRepository.js";
 import { IdempotencyRepository } from "../repositories/idempotencyRepository.js";
@@ -74,6 +75,7 @@ export async function createBooking(actor, input, idempotencyKey, now) {
 }
 
 export async function getBooking(actor, id) {
+  if (!isId(id)) throw new InvalidId();
   const booking = await new BookingRepository(pool).findById(id);
   if (!booking) throw new NotFound("Booking not found");
   if (!booking.canBeViewedBy(actor)) throw new Forbidden();
@@ -88,6 +90,7 @@ export async function listBookings(actor) {
 }
 
 export async function cancelBooking(actor, id, now) {
+  if (!isId(id)) throw new InvalidId();
   return withTransaction(async (client) => {
     const repo = new BookingRepository(client);
     // lock the row so a cancel and a payment confirm on the same booking take turns

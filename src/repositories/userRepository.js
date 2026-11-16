@@ -1,6 +1,6 @@
 // users. db can be the pool or a client inside a transaction.
 
-import { isId } from "./ids.js";
+import { isId } from "../domain/ids.js";
 
 export class UserRepository {
   constructor(db) {

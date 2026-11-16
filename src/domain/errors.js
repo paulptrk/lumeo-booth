@@ -26,6 +26,12 @@ export class Forbidden extends DomainError {
   }
 }
 
+export class InvalidId extends DomainError {
+  constructor(message = "Id must be a positive whole number") {
+    super("invalid_id", message);
+  }
+}
+
 // booking errors
 
 export class BoothUnavailable extends DomainError {

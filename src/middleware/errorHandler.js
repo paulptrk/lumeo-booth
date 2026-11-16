@@ -3,6 +3,7 @@ import { DomainError } from "../domain/errors.js";
 // error code -> http status. add new codes here when you add a domain error
 const STATUS = {
   unauthenticated: 401,
+  invalid_id: 422,
   not_found: 404,
   forbidden: 403,
   booth_unavailable: 409,

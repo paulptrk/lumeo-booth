@@ -5,7 +5,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { pool } from "../../src/db/pool.js";
 import * as service from "../../src/services/bookingService.js";
-import { BoothUnavailable, Forbidden, NotFound, IdempotencyKeyReused } from "../../src/domain/errors.js";
+import { BoothUnavailable, Forbidden, NotFound, InvalidId, IdempotencyKeyReused } from "../../src/domain/errors.js";
 
 const now = new Date("2026-11-10T12:00:00Z");
 const run = Date.now();
@@ -96,5 +96,12 @@ test("cancel frees the date and other customers can't cancel", async () => {
 
 test("missing booking is NotFound", async () => {
   await assert.rejects(service.getBooking(ana, "999999999"), NotFound);
-  await assert.rejects(service.cancelBooking(ana, "abc", now), NotFound);
+  await assert.rejects(service.cancelBooking(ana, "999999999", now), NotFound);
+});
+
+test("malformed booking id is InvalidId, not NotFound", async () => {
+  for (const bad of ["abc", "0", "-1", "007", "1.5", " 1", "1 ", "99999999999999999999", "9223372036854775808"]) {
+    await assert.rejects(service.getBooking(ana, bad), InvalidId, `get ${bad}`);
+    await assert.rejects(service.cancelBooking(ana, bad, now), InvalidId, `cancel ${bad}`);
+  }
 });

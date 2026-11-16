@@ -4,7 +4,6 @@
 
 import { Booking } from "../domain/booking.js";
 import { BoothUnavailable } from "../domain/errors.js";
-import { isId } from "../domain/ids.js";
 
 const UNIQUE_VIOLATION = "23505";
 const ONE_PER_BOOTH_DATE = "bookings_one_active_per_booth_date";
@@ -60,10 +59,10 @@ export class BookingRepository {
     }
   }
 
+  // the id must already be valid (see domain/ids.js), the service checks it.
   // lock: true adds FOR UPDATE so two writers on the same booking take turns.
   // only does anything inside a transaction
   async findById(id, { lock = false } = {}) {
-    if (!isId(id)) return null;
     const { rows } = await this.db.query(
       `SELECT ${COLUMNS} FROM bookings WHERE id = $1${lock ? " FOR UPDATE" : ""}`,
       [id]

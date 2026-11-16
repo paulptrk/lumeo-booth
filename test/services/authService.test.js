@@ -43,14 +43,10 @@ test("missing id is Unauthenticated", async () => {
   await assert.rejects(resolveActor(""), Unauthenticated);
 });
 
-test("non-numeric id is Unauthenticated, not a postgres error", async () => {
+// every malformed shape is in test/domain/ids.test.js. these two check the guard is
+// used at all: without it postgres throws 22P02 / 22003 and the api would return 500
+test("a malformed or oversized id is Unauthenticated, not a postgres error", async () => {
   await assert.rejects(resolveActor("abc"), Unauthenticated);
-  await assert.rejects(resolveActor("1; DROP TABLE users"), Unauthenticated);
-  await assert.rejects(resolveActor("-1"), Unauthenticated);
-});
-
-test("digits that overflow a bigint are Unauthenticated, not a postgres range error", async () => {
-  await assert.rejects(resolveActor("99999999999999999999"), Unauthenticated);
   await assert.rejects(resolveActor("9223372036854775808"), Unauthenticated); // max bigint + 1
 });
 

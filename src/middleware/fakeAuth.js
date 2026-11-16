@@ -4,14 +4,12 @@
 // req.user = { id, role } the same way and this file can be deleted.
 //
 //   X-User-Id: 1
+//
+// express 5 passes a rejected promise to the error handler, so no try/catch
 
 import { resolveActor } from "../services/authService.js";
 
 export async function fakeAuth(req, res, next) {
-  try {
-    req.user = await resolveActor(req.get("X-User-Id"));
-    next();
-  } catch (err) {
-    next(err);
-  }
+  req.user = await resolveActor(req.get("X-User-Id"));
+  next();
 }

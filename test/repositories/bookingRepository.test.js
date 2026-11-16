@@ -103,8 +103,6 @@ test("listByCustomer only returns that customer's bookings", async () => {
   });
 });
 
-test("findById returns null for missing or non-numeric ids", async () => {
-  const repo = new BookingRepository(pool);
-  assert.equal(await repo.findById("999999999"), null);
-  assert.equal(await repo.findById("abc"), null);
+test("findById returns null for a missing id", async () => {
+  assert.equal(await new BookingRepository(pool).findById("999999999"), null);
 });

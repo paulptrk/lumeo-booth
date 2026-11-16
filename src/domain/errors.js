@@ -14,6 +14,12 @@ export class NotFound extends DomainError {
   }
 }
 
+export class Unauthenticated extends DomainError {
+  constructor(message = "Authentication required") {
+    super("unauthenticated", message);
+  }
+}
+
 export class Forbidden extends DomainError {
   constructor(message = "Not allowed") {
     super("forbidden", message);

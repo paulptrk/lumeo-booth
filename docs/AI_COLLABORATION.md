@@ -43,10 +43,11 @@ Status: `idea` (noticed, not written up) · `drafted` · `final`
 | 3 | **Request-hash check on key reuse.** Without it, the same key with a different body silently returns the first booking, so the client thinks its second request succeeded. Now it's a 422 `idempotency_key_reused`. | wrong (subtly non-idempotent) | `hashRequest` and `createBooking` in `bookingService.js` | idea |
 | 4 | **Key claimed in the same transaction as the insert.** If the key were saved separately and the insert then failed, a retry would find a dead key. In one transaction, both roll back together. | wrong (unsafe retry) | `createBooking` in `bookingService.js`, `withTransaction` | idea |
 | 5 | **`FOR UPDATE` on cancel.** Without the row lock, a cancel and a payment confirm on the same booking can overwrite each other (lost update). | wrong (concurrency) | `cancelBooking`, `BookingRepository.findById({ lock: true })` | idea |
+| 6 | **`fakeAuth` trusted client input.** It only checked that `X-User-Id` existed. A non-numeric id made postgres throw (`22P02`) and an unknown id hit the foreign key (`23503`), both surfacing as 500. It also trusted `X-User-Role: staff` from the client, so anyone could claim staff and read or cancel every booking. Fixed: the id must be digits, the user is loaded from `users`, and the role comes from the db. | insecure (missing authentication + authorization) | `fakeAuth.js`, `authService.resolveActor`, `UserRepository.findById`, `test/services/authService.test.js` | idea |
 
 ### Added as we work
 
-_Planned: Phase 1 will add the `fakeAuth` entry (trusted client input: 500s on bad ids, spoofable `X-User-Role: staff`)._
+**Candidate 6, follow-up (found in review, reproduced, fixed).** The assistant's first fix for #6 guarded ids with `/^\d+$/`. That stops `abc` but not `99999999999999999999`: the digits pass the guard, exceed the BIGINT range, and Postgres throws `22003 value out of range` → **500** on both `GET /bookings` (auth) and `GET /bookings/:id`. The assistant's own tests used `999999999`, which fits in a bigint, so they passed. Reproduced with curl before the fix (500, 500) and after (401, 404). The same weak guard was already in `BookingRepository`. Fix: one shared `isId` in `src/repositories/ids.js` (1–19 digits and `<= 9223372036854775807n`), plus a regression test using `9223372036854775808` (max bigint + 1). Lesson: the assistant fixed the reported symptom and tested the happy side of the boundary, not the edge of the type's range. **Category: incomplete.**
 
 ---
 

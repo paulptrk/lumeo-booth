@@ -4,6 +4,7 @@
 
 import { Booking } from "../domain/booking.js";
 import { BoothUnavailable } from "../domain/errors.js";
+import { isId } from "./ids.js";
 
 const UNIQUE_VIOLATION = "23505";
 const ONE_PER_BOOTH_DATE = "bookings_one_active_per_booth_date";
@@ -24,11 +25,6 @@ function toBooking(row) {
     createdAt: row.created_at,
     cancelledAt: row.cancelled_at,
   });
-}
-
-// ids are BIGINT. anything that isn't digits can't match, and would make postgres throw
-function isId(id) {
-  return /^\d+$/.test(String(id));
 }
 
 export class BookingRepository {

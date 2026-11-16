@@ -52,7 +52,7 @@ Errors: throw a `DomainError` subclass (from `src/domain/errors.js`) with a `cod
 
 POST body: `{ "boothId", "backdropId", "eventDate", "package" }`
 
-**Auth for now:** until login is done, `src/middleware/fakeAuth.js` reads `X-User-Id` (and `X-User-Role: staff`) from headers. Look up the dev user ids with `SELECT id, email FROM users`. The real middleware only needs to set `req.user = { id, role }`.
+**Auth for now:** until login is done, `src/middleware/fakeAuth.js` reads `X-User-Id` from the headers and loads that user from the `users` table. The role (customer or staff) comes from `users.role`, never from the request. A missing, non-numeric or unknown id returns 401 `unauthenticated`. Look up the dev user ids with `SELECT id, email FROM users`. The real middleware only needs to set `req.user = { id, role }` (it can reuse `resolveActor` in `src/services/authService.js`).
 
 ## AI collaboration log
 

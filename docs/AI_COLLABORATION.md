@@ -1,59 +1,29 @@
 # AI Collaboration Log
 
-Course requirement (SOEN 387 §6.2): three to five representative examples of working with an AI assistant. Each one shows the prompt, what the assistant produced, and what I changed and why. The goal is to show where the assistant was **wrong, incomplete or insecure**, and how I caught and fixed it.
-
-This file has two parts:
-1. **Final entries**: the 3–5 that go in the report. Written up in full, with the real prompt.
-2. **Candidates**: a running list of things worth writing up. Add to it as the project goes. Promote the strongest ones to final entries.
-
-## Entry template
-
-```
-### N. <short title>
-**Category:** wrong | incomplete | insecure
-**Commit:** <hash or link>
-
-**Prompt:** what I asked (paste the real prompt)
-
-**What the assistant produced:** what it generated, and the specific flaw
-
-**How I found it:** review, test, failing demo, reading the spec...
-
-**What I changed and why:** the fix, and the reasoning I can defend in the oral exam
-
-**Evidence:** the test or script that proves the fix
-```
+Examples where the AI assistant was wrong or incomplete, and how it was fixed (SOEN 387 §6.2). Each entry has what the AI did, the prompt that called out the error, and a short explanation.
 
 ---
 
-## Final entries
+## 1. Id guard let oversized ids through (500 instead of 401/404)
 
-_None written yet. Pick 3–5 from the candidates below._
+**What the AI did:** For the `X-User-Id` bug, it added a guard that only checked the id was digits (`/^\d+$/`) before the database lookup, and wrote tests using `999999999`. Tests passed and the fix was reported as done.
 
----
+**Prompt that called out the error:** "is it possible that the ai agent is so good that i have nothing to add to the ai log"
 
-## Candidates
-
-Status: `idea` (noticed, not written up) · `drafted` · `final`
-
-| # | Candidate | Category | Where in the code | Status |
-|---|---|---|---|---|
-| 1 | **Check-then-insert availability race.** A "is it free?" SELECT followed by an INSERT lets two requests both pass the check. Fixed by dropping the check and letting the unique partial index decide. | wrong (concurrency) | `migrations/001_initial_schema.sql` (`bookings_one_active_per_booth_date`), `BookingRepository.insert` | idea |
-| 2 | **Idempotency key scoped per customer.** A global key lets customer B send customer A's key and get A's booking back. The primary key is `(customer_id, key)`. | insecure (missing authorization) | `migrations/002_idempotency_keys.sql`, `IdempotencyRepository` | idea |
-| 3 | **Request-hash check on key reuse.** Without it, the same key with a different body silently returns the first booking, so the client thinks its second request succeeded. Now it's a 422 `idempotency_key_reused`. | wrong (subtly non-idempotent) | `hashRequest` and `createBooking` in `bookingService.js` | idea |
-| 4 | **Key claimed in the same transaction as the insert.** If the key were saved separately and the insert then failed, a retry would find a dead key. In one transaction, both roll back together. | wrong (unsafe retry) | `createBooking` in `bookingService.js`, `withTransaction` | idea |
-| 5 | **`FOR UPDATE` on cancel.** Without the row lock, a cancel and a payment confirm on the same booking can overwrite each other (lost update). | wrong (concurrency) | `cancelBooking`, `BookingRepository.findById({ lock: true })` | idea |
-| 6 | **`fakeAuth` trusted client input.** It only checked that `X-User-Id` existed. A non-numeric id made postgres throw (`22P02`) and an unknown id hit the foreign key (`23503`), both surfacing as 500. It also trusted `X-User-Role: staff` from the client, so anyone could claim staff and read or cancel every booking. Fixed: the id must be digits, the user is loaded from `users`, and the role comes from the db. | insecure (missing authentication + authorization) | `fakeAuth.js`, `authService.resolveActor`, `UserRepository.findById`, `test/services/authService.test.js` | idea |
-
-### Added as we work
-
-**Candidate 6, follow-up (found in review, reproduced, fixed).** The assistant's first fix for #6 guarded ids with `/^\d+$/`. That stops `abc` but not `99999999999999999999`: the digits pass the guard, exceed the BIGINT range, and Postgres throws `22003 value out of range` → **500** on both `GET /bookings` (auth) and `GET /bookings/:id`. The assistant's own tests used `999999999`, which fits in a bigint, so they passed. Reproduced with curl before the fix (500, 500) and after (401, 404). The same weak guard was already in `BookingRepository`. Fix: one shared `isId` in `src/repositories/ids.js` (1–19 digits and `<= 9223372036854775807n`), plus a regression test using `9223372036854775808` (max bigint + 1). Lesson: the assistant fixed the reported symptom and tested the happy side of the boundary, not the edge of the type's range. **Category: incomplete.**
+**What happened:** That question made the AI re-review its own fix. A 20-digit id like `99999999999999999999` passes the digits check but is too large for a Postgres BIGINT, so Postgres threw "value out of range" and the API returned a 500, on both `GET /bookings` and `GET /bookings/:id`. The tests missed it because the test id fit in a BIGINT. It was reproduced with curl (500), then fixed by checking the id is 1–19 digits and no larger than the BIGINT maximum, with a regression test for max BIGINT + 1. The AI had fixed the reported symptom but only tested one side of the type's limit.
 
 ---
 
-## Notes for writing up
+## 2. Treated "a 400 error" as exactly status 400
 
-- Write the entry **at the time** it happens, while the prompt and the wrong output are still on screen.
-- Keep the real prompt. A paraphrase is weaker evidence.
-- The strongest entries have a test or script that fails on the assistant's version and passes on mine.
-- Be ready to explain every line of the fix in the oral defense.
+**What the AI did:** Asked to validate booking ids and "return a 400 error" when validation fails, it hardcoded status 400 for the new `invalid_id` error. It did not check the existing error-to-status map first.
+
+**Prompt that called out the error:** "i did not mean should return exaclly code 400. i meant it should return an approriate 400 level error. fix this mistake"
+
+**What happened:** The request meant "an appropriate 4xx", not literally 400. The project already returns 422 for invalid values in an otherwise valid request (`invalid_event_date`, `invalid_package`) and uses 400 only for unparseable JSON, so a hardcoded 400 was inconsistent. The status was changed to 422, and a test now pins the code-to-status mapping. The AI resolved an ambiguous requirement silently instead of checking it against the existing error model.
+
+---
+
+## Unconfirmed ideas
+
+Design choices already in the code that may be worth writing up **only if** an AI session actually got them wrong first: the availability race (unique partial index instead of check-then-insert), idempotency keys scoped per customer, the request-hash check on key reuse, claiming the key in the same transaction as the insert, and `FOR UPDATE` on cancel.

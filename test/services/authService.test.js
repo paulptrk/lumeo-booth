@@ -6,7 +6,7 @@ import { pool } from "../../src/db/pool.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { loadConfig } from "../../src/config.js";
-import { login, register, resolveActor } from "../../src/services/authService.js";
+import { authenticate, login, register, resolveActor } from "../../src/services/authService.js";
 import { EmailTaken, InvalidEmail, InvalidPassword, Unauthenticated } from "../../src/domain/errors.js";
 
 const run = Date.now();
@@ -105,4 +105,48 @@ test("login with a missing or non-string email or password is a validation error
   await assert.rejects(login(undefined, "correct-horse"), InvalidEmail);
   await assert.rejects(login(`x-${run}@register.test`, undefined), InvalidPassword);
   await assert.rejects(login(`x-${run}@register.test`, 12345678), InvalidPassword);
+});
+
+const secret = () => loadConfig().jwtSecret;
+const bearer = (claims, key = secret(), options = { algorithm: "HS256", expiresIn: "1h" }) =>
+  `Bearer ${jwt.sign(claims, key, options)}`;
+
+test("authenticate returns the user for a valid token", async () => {
+  const actor = await authenticate(bearer({ sub: staff, role: "staff" }));
+  assert.equal(String(actor.id), staff);
+  assert.equal(actor.role, "staff");
+});
+
+test("authenticate takes the role from the db, not from the token", async () => {
+  const actor = await authenticate(bearer({ sub: customer, role: "staff" }));
+  assert.equal(actor.role, "customer");
+});
+
+test("authenticate with a missing header or the wrong scheme is Unauthenticated", async () => {
+  await assert.rejects(authenticate(undefined), Unauthenticated);
+  await assert.rejects(authenticate(bearer({ sub: customer }).replace("Bearer", "Basic")), Unauthenticated);
+});
+
+test("authenticate rejects a bad token with one generic message", async () => {
+  const valid = bearer({ sub: customer });
+  const tampered = valid.slice(0, -2) + (valid.endsWith("AA") ? "BB" : "AA");
+  const bad = [
+    tampered,
+    bearer({ sub: customer }, "another-secret-that-is-long-enough-123"),
+    bearer({ sub: customer }, secret(), { algorithm: "HS256", expiresIn: -10 }),
+    bearer({ sub: customer }, secret(), { algorithm: "HS512" }),
+    `Bearer ${Buffer.from('{"alg":"none"}').toString("base64url")}.${Buffer.from(`{"sub":"${customer}"}`).toString("base64url")}.`,
+    "Bearer not-a-token",
+    bearer({ sub: "abc" }),
+  ];
+  for (const header of bad) {
+    await assert.rejects(authenticate(header), (e) => e instanceof Unauthenticated && e.message === "Invalid or expired token");
+  }
+});
+
+test("authenticate rejects a valid token whose user no longer exists", async () => {
+  const gone = await makeUser("auth-gone", "customer");
+  const header = bearer({ sub: gone });
+  await pool.query("DELETE FROM users WHERE id = $1", [gone]);
+  await assert.rejects(authenticate(header), Unauthenticated);
 });

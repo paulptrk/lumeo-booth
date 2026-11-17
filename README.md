@@ -8,7 +8,7 @@ Needs Node 22+ and Docker Desktop.
 
 ```bash
 npm install
-cp .env.example .env   # then set your own POSTGRES_PASSWORD (and the same one in DATABASE_URL)
+cp .env.example .env   # then set your own POSTGRES_PASSWORD (and the same one in DATABASE_URL) and JWT_SECRET
 npm run db:up      # starts postgres in docker
 npm run migrate
 npm run seed

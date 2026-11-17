@@ -80,6 +80,7 @@ Errors: throw a `DomainError` subclass (from `src/domain/errors.js`) with a `cod
 | GET | `/bookings` | yes | customers get their own, staff get all |
 | GET | `/bookings/:id` | yes | owner or staff |
 | PATCH | `/bookings/:id/cancel` | yes | owner or staff |
+| POST | `/auth/register` | no | `{email, password}`. 201 `{token}`, 409 email taken, 422 bad email or password. Always creates a customer |
 | GET | `/health` | no | `{"status":"ok","db":"up"}`, 503 if the db is down |
 | GET | `/docs` | no | Swagger UI |
 | GET | `/openapi.yaml` | no | the raw spec |

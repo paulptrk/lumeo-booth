@@ -16,6 +16,15 @@ export class UserRepository {
     return rows[0] ? { id: rows[0].id, role: rows[0].role } : null;
   }
 
+  // returns { id, role, passwordHash } or null. only login needs the hash.
+  async findByEmail(email) {
+    const { rows } = await this.db.query(
+      "SELECT id, role, password_hash FROM users WHERE email = $1",
+      [email]
+    );
+    return rows[0] ? { id: rows[0].id, role: rows[0].role, passwordHash: rows[0].password_hash } : null;
+  }
+
   // the role is left to the column default (customer), so staff can't be made from here.
   // the email is the only unique column that can clash, so any unique violation means it is taken.
   // returns { id, role }

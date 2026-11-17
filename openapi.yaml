@@ -5,10 +5,9 @@ info:
   description: |
     Booking and deposit service for Lumeo photobooth rentals.
 
-    **Authentication (temporary).** Protected operations read the caller's user id from the
-    `X-User-Id` header and load that user from the database. The role (`customer` or `staff`)
-    always comes from the user's record, never from the request. This will be replaced by
-    bearer tokens; the rest of the contract stays the same.
+    **Authentication.** Get a token from `POST /auth/register` or `POST /auth/login` and send it
+    as `Authorization: Bearer <token>` on protected operations. The role (`customer` or `staff`)
+    always comes from the user's record, never from the request or the token's role claim.
 
     **Errors.** Every error response has the same shape: `{ "error": { "code", "message" } }`.
     `code` is stable and meant for programs; `message` is meant for people.
@@ -25,7 +24,7 @@ tags:
   - name: Auth
     description: Create an account and get a token
   - name: Bookings
-    description: Requires `X-User-Id`
+    description: Requires a bearer token
   - name: Operations
     description: Service health
 
@@ -230,7 +229,7 @@ paths:
         new attempt.
       operationId: createBooking
       security:
-        - UserIdHeader: []
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -286,7 +285,7 @@ paths:
       description: Customers get their own bookings. Staff get all bookings.
       operationId: listBookings
       security:
-        - UserIdHeader: []
+        - BearerAuth: []
       responses:
         "200":
           description: Bookings ordered by event date
@@ -305,7 +304,7 @@ paths:
       description: Allowed for the booking's owner and for staff.
       operationId: getBooking
       security:
-        - UserIdHeader: []
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/BookingId"
       responses:
@@ -329,7 +328,7 @@ paths:
         Cancelling an already cancelled booking succeeds and changes nothing.
       operationId: cancelBooking
       security:
-        - UserIdHeader: []
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/BookingId"
       responses:
@@ -346,14 +345,13 @@ paths:
 
 components:
   securitySchemes:
-    UserIdHeader:
-      type: apiKey
-      in: header
-      name: X-User-Id
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
       description: |
-        Temporary until bearer tokens exist. The numeric id of an existing user. A missing,
-        malformed or unknown id returns 401 `unauthenticated`. The role is read from the
-        user's record, so sending a role header has no effect.
+        The token returned by `POST /auth/register` or `POST /auth/login`. A missing, invalid or
+        expired token returns 401 `unauthenticated`.
 
   parameters:
     IdempotencyKey:
@@ -385,7 +383,7 @@ components:
 
   responses:
     Unauthenticated:
-      description: Missing, malformed or unknown `X-User-Id` (`unauthenticated`)
+      description: Missing, invalid or expired token (`unauthenticated`)
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

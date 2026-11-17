@@ -1,7 +1,3 @@
-// turns "who the caller says they are" into a trusted actor { id, role }.
-// the role always comes from the users table, never from the request.
-// the real jwt middleware will call this with the token's subject instead of a header.
-
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { loadConfig } from "../config.js";
@@ -40,14 +36,6 @@ export async function login(rawEmail, rawPassword) {
     throw new Unauthenticated("Invalid email or password");
   }
   return { token: issueToken(user) };
-}
-
-export async function resolveActor(rawId) {
-  if (!rawId) throw new Unauthenticated("Missing X-User-Id header");
-  if (!isId(rawId)) throw new Unauthenticated("X-User-Id must be a user id");
-  const user = await new UserRepository(pool).findById(rawId);
-  if (!user) throw new Unauthenticated("Unknown user");
-  return user;
 }
 
 // checks the "Authorization: Bearer <token>" header and returns the caller as { id, role }.

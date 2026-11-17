@@ -6,7 +6,7 @@ import { pool } from "../../src/db/pool.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { loadConfig } from "../../src/config.js";
-import { authenticate, login, register, resolveActor } from "../../src/services/authService.js";
+import { authenticate, login, register } from "../../src/services/authService.js";
 import { EmailTaken, InvalidEmail, InvalidPassword, Unauthenticated } from "../../src/domain/errors.js";
 
 const run = Date.now();
@@ -28,33 +28,6 @@ before(async () => {
 after(async () => {
   await pool.query("DELETE FROM users WHERE id = ANY($1) OR email LIKE $2", [[customer, staff], `%-${run}@register.test`]);
   await pool.end();
-});
-
-test("a real customer resolves to role customer, taken from the db", async () => {
-  const actor = await resolveActor(customer);
-  assert.equal(String(actor.id), customer);
-  assert.equal(actor.role, "customer");
-});
-
-test("a real staff user resolves to role staff", async () => {
-  const actor = await resolveActor(staff);
-  assert.equal(actor.role, "staff");
-});
-
-test("missing id is Unauthenticated", async () => {
-  await assert.rejects(resolveActor(undefined), Unauthenticated);
-  await assert.rejects(resolveActor(""), Unauthenticated);
-});
-
-// every malformed shape is in test/domain/ids.test.js. these two check the guard is
-// used at all: without it postgres throws 22P02 / 22003 and the api would return 500
-test("a malformed or oversized id is Unauthenticated, not a postgres error", async () => {
-  await assert.rejects(resolveActor("abc"), Unauthenticated);
-  await assert.rejects(resolveActor("9223372036854775808"), Unauthenticated); // max bigint + 1
-});
-
-test("unknown numeric id is Unauthenticated", async () => {
-  await assert.rejects(resolveActor("999999999"), Unauthenticated);
 });
 
 test("register stores a bcrypt hash of the password and makes a customer", async () => {

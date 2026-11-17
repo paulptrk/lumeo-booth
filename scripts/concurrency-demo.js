@@ -50,11 +50,11 @@ async function pickFreeDate() {
   throw new Error("could not find a free date");
 }
 
-async function sendBooking(customerId, date, key) {
+async function sendBooking(token, date, key) {
   const started = performance.now();
   const res = await fetch(`${BASE_URL}/bookings`, {
     method: "POST",
-    headers: { "X-User-Id": String(customerId), "Content-Type": "application/json", "Idempotency-Key": key },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "Idempotency-Key": key },
     body: JSON.stringify({ boothId: BOOTH, backdropId: BACKDROP, eventDate: date, package: "digital_only" }),
   });
   const body = await res.json();
@@ -68,8 +68,8 @@ async function sendBooking(customerId, date, key) {
 }
 
 // builds all the requests first, then starts them in the same tick
-function fireAll(customerId, date, keys) {
-  return Promise.all(keys.map((key) => sendBooking(customerId, date, key)));
+function fireAll(token, date, keys) {
+  return Promise.all(keys.map((key) => sendBooking(token, date, key)));
 }
 
 function printTable(title, date, results) {
@@ -101,33 +101,38 @@ async function activeRows(date) {
   return rows[0].n;
 }
 
-async function cancelBooking(customerId, id) {
-  await fetch(`${BASE_URL}/bookings/${id}/cancel`, { method: "PATCH", headers: { "X-User-Id": String(customerId) } });
+async function cancelBooking(token, id) {
+  await fetch(`${BASE_URL}/bookings/${id}/cancel`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } });
 }
 
 // --- the demo ---------------------------------------------------------------
 
 async function main() {
-  const { rows } = await pool.query("SELECT id FROM users WHERE email = 'customer@lumeo.dev'");
-  if (!rows[0]) throw new Error("dev customer not found. run: npm run seed (or npm run seed:docker)");
-  const customerId = rows[0].id;
+  // log in as the seeded dev customer (npm run seed) to get a token
+  const login = await fetch(`${BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "customer@lumeo.dev", password: "dev-password-123" }),
+  });
+  if (!login.ok) throw new Error("dev customer login failed. run: npm run seed (or npm run seed:docker)");
+  const { token } = await login.json();
 
   console.log(`firing ${N} simultaneous requests per scenario at ${BASE_URL}`);
   const created = [];
   try {
-    await runScenarios(customerId, created);
+    await runScenarios(token, created);
   } finally {
     // cancelling frees the dates again, so the demo leaves nothing booked, even if a step threw
-    for (const id of created) await cancelBooking(customerId, id);
+    for (const id of created) await cancelBooking(token, id);
     console.log(`\ncleaned up: cancelled ${created.length} demo bookings`);
   }
 }
 
-async function runScenarios(customerId, created) {
+async function runScenarios(token, created) {
   // A: different keys, same booth and date
   const dateA = await pickFreeDate();
   const keysA = Array.from({ length: N }, () => crypto.randomUUID());
-  const a = await fireAll(customerId, dateA, keysA);
+  const a = await fireAll(token, dateA, keysA);
   created.push(...a.filter((r) => r.status === 201).map((r) => r.bookingId));
   printTable(`Scenario A: ${N} different requests for the same booth and date`, dateA, a);
   console.log("");
@@ -139,7 +144,7 @@ async function runScenarios(customerId, created) {
   // B: one key sent N times at once
   const dateB = await pickFreeDate();
   const sameKey = crypto.randomUUID();
-  const b = await fireAll(customerId, dateB, Array(N).fill(sameKey));
+  const b = await fireAll(token, dateB, Array(N).fill(sameKey));
   created.push(...b.filter((r) => r.status === 201 && !r.replayed).map((r) => r.bookingId));
   printTable(`Scenario B: the same request (same Idempotency-Key) sent ${N} times`, dateB, b);
   console.log("");

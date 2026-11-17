@@ -9,6 +9,7 @@ import jwt from "jsonwebtoken";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { createApp, apiRouters } from "../../src/app.js";
+import { loadConfig } from "../../src/config.js";
 import { pool } from "../../src/db/pool.js";
 import docsRouter, { spec } from "../../src/routes/docs.js";
 
@@ -60,7 +61,7 @@ async function call(method, specPathName, { path: urlPath = specPathName, user, 
     init.headers["Idempotency-Key"] = `contract-${run}-auto-${keyCount++}`;
   }
   for (const [name, value] of Object.entries(init.headers)) if (value === null) delete init.headers[name];
-  if (user) init.headers["X-User-Id"] = String(user.id);
+  if (user) init.headers.Authorization = `Bearer ${tokenFor(user)}`;
   if (raw !== undefined || body !== undefined) {
     init.headers["Content-Type"] ??= "application/json";
     init.body = raw ?? JSON.stringify(body);
@@ -107,6 +108,14 @@ async function makeUser(name, role = "customer") {
     [`${name}-${run}@contract.test`, role]
   );
   return { id: rows[0].id, role };
+}
+
+// signs a token like login does: sub is the user id, role is informational only
+function tokenFor(user, claims = {}) {
+  return jwt.sign({ sub: String(user.id), role: user.role, ...claims }, loadConfig().jwtSecret, {
+    algorithm: "HS256",
+    expiresIn: "1h",
+  });
 }
 
 function newBooking(eventDate, extra = {}) {
@@ -286,15 +295,22 @@ test("POST /bookings: a body over 100 KB is 413 and an unknown charset is 415, n
   assert.equal(charset.body.error.code, "invalid_body");
 });
 
-test("auth is checked before the body is read: bad JSON with no X-User-Id is 401", async () => {
+test("auth is checked before the body is read: bad JSON with no Authorization header is 401", async () => {
   assert.equal((await call("POST", "/bookings", { raw: "{not json" })).status, 401);
   assert.equal((await call("PATCH", "/bookings/{id}/cancel", { path: "/bookings/1/cancel", raw: "{not json" })).status, 401);
 });
 
-test("protected operations: missing, malformed and unknown X-User-Id are 401", async () => {
-  for (const id of [undefined, "abc", "999999999", "99999999999999999999"]) {
-    const user = id === undefined ? undefined : { id };
-    const res = await call("GET", "/bookings", { user });
+test("protected operations: a missing or bad token is 401", async () => {
+  const good = tokenFor(ana);
+  const bad = [
+    undefined,
+    "Basic abc",
+    "Bearer garbage",
+    `Bearer ${good.slice(0, -2)}xx`,
+    `Bearer ${tokenFor({ id: 999999999, role: "customer" })}`,
+  ];
+  for (const header of bad) {
+    const res = await call("GET", "/bookings", { headers: header === undefined ? {} : { Authorization: header } });
     assert.equal(res.status, 401);
     assert.equal(res.body.error.code, "unauthenticated");
   }
@@ -303,11 +319,12 @@ test("protected operations: missing, malformed and unknown X-User-Id are 401", a
   assert.equal((await call("PATCH", "/bookings/{id}/cancel", { path: "/bookings/1/cancel" })).status, 401);
 });
 
-// regression for the old fakeAuth, which trusted an X-User-Role header. keep this
-// test when the real auth replaces X-User-Id: only how the user is sent changes
-test("the role comes from the database: a customer sending X-User-Role: staff is still a customer", async () => {
+// the role is never taken from the request: not from a header, not from the token's role claim
+test("the role comes from the database: a customer claiming staff is still a customer", async () => {
   const { body: kims } = await call("POST", "/bookings", { user: kim, body: newBooking("2094-04-05") });
-  const asStaff = { user: ana, headers: { "X-User-Role": "staff" } };
+  const asStaff = {
+    headers: { "X-User-Role": "staff", Authorization: `Bearer ${tokenFor(ana, { role: "staff" })}` },
+  };
 
   const list = await call("GET", "/bookings", asStaff);
   assert.ok(list.body.every((b) => b.customerId === String(ana.id)), "saw other customers' bookings");

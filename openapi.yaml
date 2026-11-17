@@ -119,6 +119,53 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "500": { $ref: "#/components/responses/InternalError" }
 
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      description: |
+        Returns a token for the account. A wrong email and a wrong password get the same
+        401, so the response does not reveal which emails have an account.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthToken" }
+        "400":
+          description: The request body is not valid JSON (`invalid_json`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: Wrong email or password (`unauthenticated`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413":
+          description: The request body is larger than 100 KB (`invalid_body`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "415":
+          description: The request body uses an unsupported charset or encoding (`invalid_body`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: The email or password is missing or not a string (`invalid_email` or `invalid_password`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
   /auth/register:
     post:
       tags: [Auth]
@@ -408,6 +455,13 @@ components:
           minLength: 8
           description: At least 8 characters and at most 72 bytes
           example: correct-horse-battery
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, example: ana@example.com }
+        password: { type: string, example: correct-horse-battery }
 
     AuthToken:
       type: object

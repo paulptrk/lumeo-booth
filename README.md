@@ -36,7 +36,7 @@ Then open http://localhost:3000/docs. Stop with `npm run down`, which stops both
 
 ## Demo front end
 
-With the app running, open http://localhost:3000. It's one plain page ([public/index.html](public/index.html), no build step) for testing the api by hand:
+With the app running, open http://localhost:3000. It's a plain page in [public/](public/) (`index.html` markup, `styles.css`, `app.js`; no build step, no libraries) for testing the api by hand:
 
 - **Sign in** with the dev customer or staff account (one click), or log in / register any email. The page keeps the JWT for the browser tab and shows the user id and role it claims.
 - **Book a booth** with a visible `Idempotency-Key`. Clicking Book again with the same key shows a replay; changing the body but keeping the key shows `idempotency_key_reused`. "Check availability" calls the availability endpoint.

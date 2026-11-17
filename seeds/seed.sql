@@ -12,8 +12,11 @@ INSERT INTO backdrops (id, name) VALUES
   ('backdrop_sequin_gold',      'Sequin - Gold')
 ON CONFLICT (id) DO NOTHING;
 
--- dev accounts for testing before login exists. the hashes are placeholders, not real passwords
+-- dev accounts. both use the dev password "dev-password-123" (not a secret, only for local use).
+-- the hash is bcrypt cost 10, made with: node -e 'require("bcrypt").hash("dev-password-123",10).then(console.log)'
+-- an account that still has the old placeholder hash gets the real one, other passwords are left alone
 INSERT INTO users (email, password_hash, role) VALUES
-  ('customer@lumeo.dev', 'placeholder', 'customer'),
-  ('staff@lumeo.dev',    'placeholder', 'staff')
-ON CONFLICT (email) DO NOTHING;
+  ('customer@lumeo.dev', '$2b$10$XXwljnAMGDKTmFRfJGbXQ.uDjuOzE6LvVJzGQftNKpwe4kpFGTEyy', 'customer'),
+  ('staff@lumeo.dev',    '$2b$10$XXwljnAMGDKTmFRfJGbXQ.uDjuOzE6LvVJzGQftNKpwe4kpFGTEyy', 'staff')
+ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
+  WHERE users.password_hash = 'placeholder';

@@ -414,3 +414,42 @@ test("POST /auth/register: invalid JSON is 400 invalid_json", async () => {
   assert.equal(res.status, 400);
   assert.equal(res.body.error.code, "invalid_json");
 });
+
+test("POST /auth/login: 200 with a token for the right password", async () => {
+  const body = { email: `login-${run}@register.contract.test`, password: "correct-horse" };
+  assert.equal((await call("POST", "/auth/register", { body })).status, 201);
+  const res = await call("POST", "/auth/login", { body });
+  assert.equal(res.status, 200);
+  assert.deepEqual(Object.keys(res.body), ["token"]);
+  assert.equal(jwt.decode(res.body.token).role, "customer");
+});
+
+test("POST /auth/login: a wrong password and an unknown email are both 401 unauthenticated", async () => {
+  const email = `login401-${run}@register.contract.test`;
+  assert.equal((await call("POST", "/auth/register", { body: { email, password: "correct-horse" } })).status, 201);
+  const wrong = await call("POST", "/auth/login", { body: { email, password: "not-the-password" } });
+  const unknown = await call("POST", "/auth/login", { body: { email: `nobody-${run}@register.contract.test`, password: "correct-horse" } });
+  for (const res of [wrong, unknown]) {
+    assert.equal(res.status, 401);
+    assert.equal(res.body.error.code, "unauthenticated");
+  }
+  assert.deepEqual(wrong.body, unknown.body);
+});
+
+test("POST /auth/login: a missing email or password is 422 with the right code", async () => {
+  const cases = [
+    ["invalid_email", { password: "correct-horse" }],
+    ["invalid_password", { email: `x-${run}@register.contract.test` }],
+  ];
+  for (const [code, body] of cases) {
+    const res = await call("POST", "/auth/login", { body });
+    assert.equal(res.status, 422, code);
+    assert.equal(res.body.error.code, code);
+  }
+});
+
+test("POST /auth/login: invalid JSON is 400 invalid_json", async () => {
+  const res = await call("POST", "/auth/login", { raw: "{not json" });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error.code, "invalid_json");
+});

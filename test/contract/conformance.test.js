@@ -12,6 +12,7 @@ import { createApp, apiRouters } from "../../src/app.js";
 import { loadConfig } from "../../src/config.js";
 import { pool } from "../../src/db/pool.js";
 import docsRouter, { spec } from "../../src/routes/docs.js";
+import uiRouter from "../../src/routes/ui.js";
 
 // --- spec helpers -----------------------------------------------------------
 
@@ -159,7 +160,7 @@ test("the app mounts only the docs router and the routers listed in apiRouters",
   // a router mounted any other way would skip the route check below
   const app = createApp();
   const mounted = app.router.stack.filter((layer) => Array.isArray(layer.handle.stack)).map((layer) => layer.handle);
-  assert.deepEqual(mounted, [docsRouter, ...apiRouters.map((r) => r.router)]);
+  assert.deepEqual(mounted, [docsRouter, uiRouter, ...apiRouters.map((r) => r.router)]);
   assert.equal(app.router.stack.filter((layer) => layer.route).length, 0, "routes defined directly on the app");
 });
 

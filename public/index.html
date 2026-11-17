@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumeo Booth</title>
+<!--
+  demo front end for testing the api by hand. plain html + js, no build step and
+  no libraries. it only calls the public api (same endpoints as openapi.yaml), so
+  every rule is still enforced by the server, never by this page.
+-->
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+    --accent: #3b5bdb; --accent-text: #ffffff; --ok: #1f8a4c; --warn: #b26a00; --bad: #c92a2a;
+    --code: #f1f3f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b2029; --text: #e6e9ef; --muted: #98a2b3; --line: #2c3340;
+      --accent: #748ffc; --accent-text: #0b0f17; --ok: #51cf66; --warn: #fcc419; --bad: #ff6b6b;
+      --code: #232a35;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--card); }
+  header h1 { margin: 0; font-size: 18px; }
+  header nav { display: flex; gap: 14px; align-items: center; color: var(--muted); }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { margin: 0 0 4px; font-size: 15px; }
+  p.hint { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  label { display: block; margin: 8px 0 3px; color: var(--muted); font-size: 12px; }
+  input, select { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+  .row > * { flex: 1 1 120px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  button { padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button:disabled { opacity: .5; cursor: default; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  code, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; border: 1px solid currentColor; }
+  .s2 { color: var(--ok); } .s4 { color: var(--warn); } .s5, .bad { color: var(--bad); }
+  .muted { color: var(--muted); }
+  .result { margin-top: 10px; min-height: 1.4em; }
+  #log { max-height: 420px; overflow-y: auto; }
+  #log details { border-bottom: 1px solid var(--line); padding: 6px 0; }
+  #log summary { cursor: pointer; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  #log pre { margin: 6px 0 0; padding: 8px; background: var(--code); border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Lumeo Booth <span class="muted" style="font-weight:400">demo console</span></h1>
+  <nav>
+    <span id="health" class="pill muted">checking…</span>
+    <span id="who" class="muted">signed out</span>
+    <a href="/docs" style="color:var(--accent)">API docs</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <h2>1. Sign in</h2>
+    <p class="hint">Gets a JWT from <code>POST /auth/login</code> or <code>/auth/register</code> and sends it as <code>Authorization: Bearer …</code> on every booking call.</p>
+    <div class="actions" style="margin-top:0">
+      <button data-dev="customer@lumeo.dev">Dev customer</button>
+      <button data-dev="staff@lumeo.dev">Dev staff</button>
+    </div>
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username">
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <div class="actions">
+      <button class="primary" id="login">Log in</button>
+      <button id="register">Register</button>
+      <button id="logout">Log out</button>
+    </div>
+    <div class="result" id="auth-result"></div>
+  </section>
+
+  <section>
+    <h2>2. Book a booth</h2>
+    <p class="hint">Clicking <b>Book</b> again with the same key is a retry: the server replays the first result (marked <code>Idempotent-Replayed</code>). Change the body but keep the key and it is rejected.</p>
+    <div class="row">
+      <div><label for="booth">Booth</label><select id="booth"></select></div>
+      <div><label for="backdrop">Backdrop</label><select id="backdrop"></select></div>
+    </div>
+    <div class="row">
+      <div><label for="date">Event date</label><input id="date" type="date"></div>
+      <div><label for="package">Package</label>
+        <select id="package"><option>digital_only</option><option>digital_plus_prints</option></select></div>
+    </div>
+    <label for="key">Idempotency-Key</label>
+    <div class="row"><input id="key" class="mono"><button id="new-key" style="flex:0 0 auto">New key</button></div>
+    <div class="actions">
+      <button id="check">Check availability</button>
+      <button class="primary" id="book">Book</button>
+    </div>
+    <div class="result" id="book-result"></div>
+  </section>
+
+  <section>
+    <h2>3. Race for one date</h2>
+    <p class="hint">Fires every request at once for the same booth and date. Different keys: expect one 201 and the rest 409. Same key: expect all 201, one created and the rest replays. Browsers open at most 6 connections per site, so the <code>npm run demo:concurrency</code> script is the stronger proof.</p>
+    <div class="row">
+      <div><label for="race-date">Date</label><input id="race-date" type="date"></div>
+      <div><label for="race-n">Requests</label><input id="race-n" type="number" min="2" max="50" value="10"></div>
+    </div>
+    <label for="race-mode">Keys</label>
+    <select id="race-mode">
+      <option value="distinct">a different key per request (10 customers racing)</option>
+      <option value="same">the same key for all (one client retrying)</option>
+    </select>
+    <div class="actions"><button class="primary" id="race">Fire at once</button><button id="race-date-new">New date</button></div>
+    <div class="result" id="race-summary"></div>
+    <div class="scroll"><table id="race-table" hidden><thead><tr><th>#</th><th>status</th><th>result</th><th>ms</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="wide">
+    <h2>4. Bookings</h2>
+    <p class="hint">Customers see their own, staff see everyone's (decided by the server from the user's role in the database).</p>
+    <div class="actions" style="margin-top:0"><button id="refresh">Refresh</button></div>
+    <div class="scroll"><table id="bookings"><thead><tr><th>id</th><th>customer</th><th>booth</th><th>backdrop</th><th>date</th><th>package</th><th>status</th><th>deposit</th><th></th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="wide">
+    <h2>Request log</h2>
+    <p class="hint">Every call this page made, newest first. Click one to see the response body.</p>
+    <div id="log"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+// --- small helpers ---------------------------------------------------------
+
+const $ = (id) => document.getElementById(id);
+
+// builds an element. text always goes in as textContent, never as html,
+// so data from the api can't inject markup
+function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") node.className = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) node.append(c instanceof Node ? c : document.createTextNode(String(c ?? "")));
+  return node;
+}
+
+function statusPill(status) {
+  return el("span", { class: `pill s${String(status)[0]}` }, status);
+}
+
+function newKey() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  // randomUUID only exists on https or localhost
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function randomFarDate() {
+  const r = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo));
+  return `${r(2090, 2100)}-${String(r(1, 13)).padStart(2, "0")}-${String(r(1, 29)).padStart(2, "0")}`;
+}
+
+function dateInDays(days) {
+  const d = new Date(Date.now() + days * 86400000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const store = {
+  get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch { /* private mode */ } },
+};
+
+// --- api calls ---------------------------------------------------------------
+
+let token = store.get("lumeo-token");
+
+// calls the api, logs the call, returns { status, body, replayed, ms }
+async function api(method, path, { body, key, log = true } = {}) {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (key) headers["Idempotency-Key"] = key;
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const started = performance.now();
+  let res, data;
+  try {
+    res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    const text = await res.text();
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  } catch (err) {
+    const out = { status: 0, body: { error: { code: "network", message: err.message } }, replayed: false, ms: 0 };
+    if (log) addLog(method, path, out);
+    return out;
+  }
+  const out = {
+    status: res.status,
+    body: data,
+    replayed: res.headers.get("Idempotent-Replayed") === "true",
+    ms: Math.round(performance.now() - started),
+  };
+  if (log) addLog(method, path, out, key);
+  if (res.status === 401 && token && !path.startsWith("/auth/")) setToken(null); // expired or deleted user
+  return out;
+}
+
+function describe(r) {
+  if (r.body?.error) return `${r.body.error.code}: ${r.body.error.message}`;
+  if (r.body?.id) return `booking ${r.body.id} (${r.body.status})${r.replayed ? ", replayed" : ""}`;
+  return "";
+}
+
+function addLog(method, path, r, key) {
+  const summary = el("summary", {}, statusPill(r.status || "ERR"), el("code", {}, `${method} ${path}`),
+    r.replayed ? el("span", { class: "pill muted" }, "Idempotent-Replayed") : "",
+    el("span", { class: "muted" }, describe(r)), el("span", { class: "muted" }, `${r.ms} ms`));
+  const detail = el("pre", {}, (key ? `Idempotency-Key: ${key}\n\n` : "") + JSON.stringify(r.body, null, 2));
+  const log = $("log");
+  log.prepend(el("details", {}, summary, detail));
+  while (log.children.length > 60) log.lastChild.remove();
+}
+
+// --- sign in -----------------------------------------------------------------
+
+// shows what the token claims. the server never trusts the role in it, it
+// reloads the user's role from the database on every request
+function tokenClaims(t) {
+  try { return JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); } catch { return null; }
+}
+
+function setToken(t) {
+  token = t;
+  store.set("lumeo-token", t);
+  const claims = t && tokenClaims(t);
+  $("who").textContent = claims ? `user #${claims.sub} · ${claims.role}` : "signed out";
+  if (t) loadBookings(); else $("bookings").tBodies[0].replaceChildren();
+}
+
+async function signIn(path) {
+  const r = await api("POST", path, { body: { email: $("email").value, password: $("password").value } });
+  const out = $("auth-result");
+  if (r.body?.token) {
+    setToken(r.body.token);
+    out.replaceChildren(statusPill(r.status), " signed in");
+  } else {
+    out.replaceChildren(statusPill(r.status), " ", describe(r));
+  }
+}
+
+$("login").onclick = () => signIn("/auth/login");
+$("register").onclick = () => signIn("/auth/register");
+$("logout").onclick = () => { setToken(null); $("auth-result").textContent = "signed out"; };
+document.querySelectorAll("[data-dev]").forEach((b) => {
+  // the seeded dev accounts (see seeds/seed.sql). local testing only
+  b.onclick = () => { $("email").value = b.dataset.dev; $("password").value = "dev-password-123"; signIn("/auth/login"); };
+});
+
+// --- catalog + booking -------------------------------------------------------
+
+async function loadCatalog() {
+  const [booths, backdrops] = await Promise.all([api("GET", "/booths", { log: false }), api("GET", "/backdrops", { log: false })]);
+  const fill = (select, items) => select.replaceChildren(...(Array.isArray(items) ? items : []).map((i) => el("option", { value: i.id }, i.name)));
+  fill($("booth"), booths.body);
+  fill($("backdrop"), backdrops.body);
+}
+
+function bookingInput(date) {
+  return { boothId: $("booth").value, backdropId: $("backdrop").value, eventDate: date ?? $("date").value, package: $("package").value };
+}
+
+$("new-key").onclick = () => { $("key").value = newKey(); };
+
+$("check").onclick = async () => {
+  const r = await api("GET", `/booths/${encodeURIComponent($("booth").value)}/availability?date=${encodeURIComponent($("date").value)}`);
+  const out = $("book-result");
+  if (r.status === 200) out.replaceChildren(el("b", { class: r.body.available ? "s2" : "bad" }, r.body.available ? "Free" : "Taken"), ` on ${r.body.date}`);
+  else out.replaceChildren(statusPill(r.status), " ", describe(r));
+};
+
+$("book").onclick = async () => {
+  const r = await api("POST", "/bookings", { body: bookingInput(), key: $("key").value });
+  $("book-result").replaceChildren(statusPill(r.status), " ", describe(r));
+  loadBookings();
+};
+
+// --- race --------------------------------------------------------------------
+
+$("race-date-new").onclick = () => { $("race-date").value = randomFarDate(); };
+
+$("race").onclick = async () => {
+  const button = $("race");
+  button.disabled = true;
+  const n = Math.max(2, Math.min(50, Number($("race-n").value) || 10));
+  const date = $("race-date").value;
+  const shared = newKey();
+  const keys = Array.from({ length: n }, () => ($("race-mode").value === "same" ? shared : newKey()));
+
+  // all requests are started before any is awaited
+  const results = await Promise.all(keys.map((key) => api("POST", "/bookings", { body: bookingInput(date), key })));
+
+  const table = $("race-table");
+  table.hidden = false;
+  table.tBodies[0].replaceChildren(...results.map((r, i) => el("tr", {}, el("td", {}, i + 1), el("td", {}, statusPill(r.status)), el("td", {}, describe(r)), el("td", {}, r.ms))));
+
+  const count = (s) => results.filter((r) => r.status === s).length;
+  const replays = results.filter((r) => r.replayed).length;
+  const ids = new Set(results.filter((r) => r.body?.id).map((r) => r.body.id));
+  $("race-summary").replaceChildren(
+    el("b", {}, `${count(201)} × 201`), `, ${count(409)} × 409`, replays ? `, ${replays} replays` : "",
+    `, ${ids.size} booking${ids.size === 1 ? "" : "s"} created for ${date}. `,
+    el("span", { class: ids.size <= 1 ? "s2" : "bad" }, ids.size <= 1 ? "No double booking." : "Double booking!"));
+
+  $("race-date").value = randomFarDate(); // next race gets a fresh date
+  button.disabled = false;
+  loadBookings();
+};
+
+// --- bookings ----------------------------------------------------------------
+
+async function loadBookings() {
+  const body = $("bookings").tBodies[0];
+  if (!token) return body.replaceChildren(el("tr", {}, el("td", { colspan: 9, class: "muted" }, "Sign in to see bookings.")));
+  const r = await api("GET", "/bookings", { log: false });
+  if (!Array.isArray(r.body)) return body.replaceChildren(el("tr", {}, el("td", { colspan: 9 }, describe(r))));
+  if (!r.body.length) return body.replaceChildren(el("tr", {}, el("td", { colspan: 9, class: "muted" }, "No bookings yet.")));
+  body.replaceChildren(...r.body.map((b) => el("tr", {},
+    el("td", { class: "mono" }, b.id), el("td", { class: "mono" }, b.customerId), el("td", {}, b.boothId), el("td", {}, b.backdropId),
+    el("td", {}, b.eventDate), el("td", {}, b.package), el("td", { class: b.status === "cancelled" ? "muted" : "" }, b.status),
+    el("td", {}, `$${(b.depositCents / 100).toFixed(2)}`),
+    el("td", {}, b.status === "cancelled" ? "" : el("button", { onclick: () => cancel(b.id) }, "Cancel")))));
+}
+
+async function cancel(id) {
+  await api("PATCH", `/bookings/${encodeURIComponent(id)}/cancel`);
+  loadBookings();
+}
+
+$("refresh").onclick = loadBookings;
+
+// --- start -------------------------------------------------------------------
+
+async function checkHealth() {
+  const r = await api("GET", "/health", { log: false });
+  const pill = $("health");
+  pill.className = `pill ${r.status === 200 ? "s2" : "s5"}`;
+  pill.textContent = r.status === 200 ? "api + db up" : r.status === 0 ? "api down" : "db down";
+}
+
+$("date").value = dateInDays(30);
+$("race-date").value = randomFarDate();
+$("key").value = newKey();
+setToken(token);
+loadCatalog();
+checkHealth();
+setInterval(checkHealth, 15000);
+</script>
+</body>
+</html>

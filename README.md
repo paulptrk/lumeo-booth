@@ -34,6 +34,18 @@ Then open http://localhost:3000/docs. Stop with `npm run down`, which stops both
 - Pick your own password in `.env` before the first `npm run db:up`. Postgres only reads it when the `pgdata` volume is first created, so changing it later needs `docker compose down -v` (this deletes the data) or an `ALTER USER`.
 - Migrations run every time the container starts and only apply new files. If the database isn't ready yet the container exits and restarts until it is.
 
+## Demo front end
+
+With the app running, open http://localhost:3000. It's one plain page ([public/index.html](public/index.html), no build step) for testing the api by hand:
+
+- **Sign in** with the dev customer or staff account (one click), or log in / register any email. The page keeps the JWT for the browser tab and shows the user id and role it claims.
+- **Book a booth** with a visible `Idempotency-Key`. Clicking Book again with the same key shows a replay; changing the body but keeping the key shows `idempotency_key_reused`. "Check availability" calls the availability endpoint.
+- **Race for one date** fires N bookings at once (different keys or the same key) and shows the statuses. Browsers open at most 6 connections per site, so `npm run demo:concurrency` remains the real proof.
+- **Bookings** lists what the server lets you see (customers their own, staff everything) with a Cancel button.
+- **Request log** shows every call with its status, error code and `Idempotent-Replayed` header.
+
+The page only calls the public api, so every rule is still enforced by the server.
+
 ## Concurrency demo
 
 With the app running (Docker or `npm run dev`) and the db seeded:

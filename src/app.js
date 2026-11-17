@@ -4,6 +4,7 @@ import boothsRouter from "./routes/booths.js";
 import bookingsRouter from "./routes/bookings.js";
 import authRouter from "./routes/auth.js";
 import docsRouter from "./routes/docs.js";
+import uiRouter from "./routes/ui.js";
 import { notFound, errorHandler } from "./middleware/errorHandler.js";
 
 // the api's routers and where they're mounted. test/contract checks every route
@@ -19,8 +20,9 @@ export const apiRouters = [
 export function createApp() {
   const app = express();
 
-  // serves the spec itself, so it isn't described in it
+  // the spec itself and the demo front end, so neither is described in the spec
   app.use(docsRouter);
+  app.use(uiRouter);
   for (const { prefix, router } of apiRouters) app.use(prefix, router);
 
   app.use(notFound);

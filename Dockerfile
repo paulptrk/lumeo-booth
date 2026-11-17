@@ -13,6 +13,7 @@ COPY --chown=node:node scripts ./scripts
 COPY --chown=node:node migrations ./migrations
 COPY --chown=node:node seeds ./seeds
 COPY --chown=node:node openapi.yaml ./
+COPY --chown=node:node public ./public
 
 # never run as root
 USER node

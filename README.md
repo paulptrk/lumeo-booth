@@ -6,8 +6,6 @@ Booking and deposit service for Lumeo photobooth rentals. Express + PostgreSQL.
 
 Needs Node 22+ and Docker Desktop.
 
-`JWT_SECRET` signs login tokens. It must be at least 32 characters and the app refuses to start without it. Generate one with `openssl rand -base64 48`. If you already have a `.env`, add it (and `JWT_EXPIRES_IN`, optional, default `1h`) from `.env.example`.
-
 ```bash
 npm install
 cp .env.example .env   # then set your own POSTGRES_PASSWORD (and the same one in DATABASE_URL) and JWT_SECRET

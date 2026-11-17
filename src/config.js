@@ -2,7 +2,6 @@
 // takes the env object as an argument so tests don't have to touch process.env.
 
 const MIN_SECRET_LENGTH = 32;
-const DEFAULT_EXPIRES_IN = "1h";
 
 export function loadConfig(env = process.env) {
   const jwtSecret = env.JWT_SECRET;
@@ -14,8 +13,5 @@ export function loadConfig(env = process.env) {
   if (jwtSecret.length < MIN_SECRET_LENGTH) {
     throw new Error(`JWT_SECRET must be at least ${MIN_SECRET_LENGTH} characters (try: openssl rand -base64 48)`);
   }
-  return {
-    jwtSecret,
-    jwtExpiresIn: env.JWT_EXPIRES_IN || DEFAULT_EXPIRES_IN,
-  };
+  return { jwtSecret };
 }

@@ -14,10 +14,6 @@ test("a JWT_SECRET shorter than 32 characters throws", () => {
   assert.throws(() => loadConfig({ JWT_SECRET: "x".repeat(31) }), /at least 32/);
 });
 
-test("a valid secret returns the config, expiry defaults to 1h", () => {
-  assert.deepEqual(loadConfig({ JWT_SECRET: SECRET }), { jwtSecret: SECRET, jwtExpiresIn: "1h" });
-});
-
-test("JWT_EXPIRES_IN overrides the default", () => {
-  assert.equal(loadConfig({ JWT_SECRET: SECRET, JWT_EXPIRES_IN: "15m" }).jwtExpiresIn, "15m");
+test("a valid secret returns the config", () => {
+  assert.deepEqual(loadConfig({ JWT_SECRET: SECRET }), { jwtSecret: SECRET });
 });

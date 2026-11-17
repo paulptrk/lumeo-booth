@@ -3,8 +3,11 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { pool } from "../../src/db/pool.js";
-import { resolveActor } from "../../src/services/authService.js";
-import { Unauthenticated } from "../../src/domain/errors.js";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import { loadConfig } from "../../src/config.js";
+import { register, resolveActor } from "../../src/services/authService.js";
+import { EmailTaken, Unauthenticated } from "../../src/domain/errors.js";
 
 const run = Date.now();
 let customer, staff;
@@ -23,7 +26,7 @@ before(async () => {
 });
 
 after(async () => {
-  await pool.query("DELETE FROM users WHERE id = ANY($1)", [[customer, staff]]);
+  await pool.query("DELETE FROM users WHERE id = ANY($1) OR email LIKE $2", [[customer, staff], `%-${run}@register.test`]);
   await pool.end();
 });
 
@@ -52,4 +55,28 @@ test("a malformed or oversized id is Unauthenticated, not a postgres error", asy
 
 test("unknown numeric id is Unauthenticated", async () => {
   await assert.rejects(resolveActor("999999999"), Unauthenticated);
+});
+
+test("register stores a bcrypt hash of the password and makes a customer", async () => {
+  const email = `new-${run}@register.test`;
+  await register(email, "correct-horse");
+  const { rows } = await pool.query("SELECT password_hash, role FROM users WHERE email = $1", [email]);
+  assert.notEqual(rows[0].password_hash, "correct-horse");
+  assert.equal(await bcrypt.compare("correct-horse", rows[0].password_hash), true);
+  assert.equal(rows[0].role, "customer");
+});
+
+test("register returns a token signed with the secret, carrying the user id and role", async () => {
+  const { token } = await register(`token-${run}@register.test`, "correct-horse");
+  const claims = jwt.verify(token, loadConfig().jwtSecret, { algorithms: ["HS256"] });
+  const { rows } = await pool.query("SELECT id FROM users WHERE email = $1", [`token-${run}@register.test`]);
+  assert.equal(claims.sub, String(rows[0].id));
+  assert.equal(claims.role, "customer");
+  assert.equal(claims.exp - claims.iat, 3600);
+});
+
+test("register with an email that is taken is EmailTaken, whatever its case", async () => {
+  await register(`dup-${run}@register.test`, "correct-horse");
+  await assert.rejects(register(`dup-${run}@register.test`, "another-pass"), EmailTaken);
+  await assert.rejects(register(`DUP-${run}@Register.test`, "another-pass"), EmailTaken);
 });

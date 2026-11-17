@@ -15,6 +15,9 @@ export const STATUS = {
   invalid_event_date: 422,
   idempotency_key_required: 422,
   idempotency_key_reused: 422,
+  invalid_email: 422,
+  invalid_password: 422,
+  email_taken: 409,
 };
 
 function send(res, status, code, message) {

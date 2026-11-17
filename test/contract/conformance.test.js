@@ -5,6 +5,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import jwt from "jsonwebtoken";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { createApp, apiRouters } from "../../src/app.js";
@@ -123,6 +124,7 @@ before(async () => {
 
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
+  await pool.query("DELETE FROM users WHERE email LIKE $1", [`%-${run}@register.contract.test`]);
   const ids = [ana.id, kim.id, staff.id];
   await pool.query("DELETE FROM idempotency_keys WHERE customer_id = ANY($1)", [ids]);
   await pool.query("DELETE FROM bookings WHERE customer_id = ANY($1)", [ids]);
@@ -371,4 +373,44 @@ test("PATCH /bookings/{id}/cancel: owner cancels and the date frees up, twice is
 
   assert.equal((await call("PATCH", "/bookings/{id}/cancel", { ...at("abc"), user: ana })).status, 422);
   assert.equal((await call("PATCH", "/bookings/{id}/cancel", { ...at("999999999"), user: ana })).status, 404);
+});
+
+// --- auth -------------------------------------------------------------------
+
+test("POST /auth/register: 201 with a token, and a role in the body is ignored", async () => {
+  const email = `new-${run}@register.contract.test`;
+  const res = await call("POST", "/auth/register", { body: { email, password: "correct-horse", role: "staff" } });
+  assert.equal(res.status, 201);
+  assert.deepEqual(Object.keys(res.body), ["token"]);
+  assert.equal(jwt.decode(res.body.token).role, "customer");
+  const { rows } = await pool.query("SELECT role FROM users WHERE email = $1", [email]);
+  assert.equal(rows[0].role, "customer");
+});
+
+test("POST /auth/register: the same email again is 409 email_taken", async () => {
+  const body = { email: `taken-${run}@register.contract.test`, password: "correct-horse" };
+  assert.equal((await call("POST", "/auth/register", { body })).status, 201);
+  const res = await call("POST", "/auth/register", { body: { ...body, email: body.email.toUpperCase() } });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.error.code, "email_taken");
+});
+
+test("POST /auth/register: a bad email or password is 422 with the right code", async () => {
+  const cases = [
+    ["invalid_email", { email: "not-an-email", password: "correct-horse" }],
+    ["invalid_email", { password: "correct-horse" }],
+    ["invalid_password", { email: `short-${run}@register.contract.test`, password: "short" }],
+    ["invalid_password", { email: `short-${run}@register.contract.test` }],
+  ];
+  for (const [code, body] of cases) {
+    const res = await call("POST", "/auth/register", { body });
+    assert.equal(res.status, 422, code);
+    assert.equal(res.body.error.code, code);
+  }
+});
+
+test("POST /auth/register: invalid JSON is 400 invalid_json", async () => {
+  const res = await call("POST", "/auth/register", { raw: "{not json" });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error.code, "invalid_json");
 });

@@ -49,3 +49,20 @@ export async function resolveActor(rawId) {
   if (!user) throw new Unauthenticated("Unknown user");
   return user;
 }
+
+// checks the "Authorization: Bearer <token>" header and returns the caller as { id, role }.
+// only the token's subject is used, the role is reloaded from the users table so a deleted
+// user or a changed role takes effect right away. every token problem gives the same message.
+export async function authenticate(authorizationHeader) {
+  const match = /^Bearer (.+)$/.exec(authorizationHeader ?? "");
+  if (!match) throw new Unauthenticated();
+  let payload;
+  try {
+    payload = jwt.verify(match[1], loadConfig().jwtSecret, { algorithms: ["HS256"] });
+  } catch {
+    throw new Unauthenticated("Invalid or expired token");
+  }
+  const user = isId(payload.sub) ? await new UserRepository(pool).findById(payload.sub) : null;
+  if (!user) throw new Unauthenticated("Invalid or expired token");
+  return user;
+}

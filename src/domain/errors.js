@@ -81,3 +81,23 @@ export class IdempotencyKeyReused extends DomainError {
     super("idempotency_key_reused", "This Idempotency-Key was already used for a different request");
   }
 }
+
+// auth errors
+
+export class InvalidEmail extends DomainError {
+  constructor() {
+    super("invalid_email", "Email must be a valid address of at most 254 characters");
+  }
+}
+
+export class InvalidPassword extends DomainError {
+  constructor() {
+    super("invalid_password", "Password must be at least 8 characters and at most 72 bytes");
+  }
+}
+
+export class EmailTaken extends DomainError {
+  constructor() {
+    super("email_taken", "An account with this email already exists");
+  }
+}

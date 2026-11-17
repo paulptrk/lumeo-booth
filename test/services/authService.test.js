@@ -6,8 +6,8 @@ import { pool } from "../../src/db/pool.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { loadConfig } from "../../src/config.js";
-import { register, resolveActor } from "../../src/services/authService.js";
-import { EmailTaken, Unauthenticated } from "../../src/domain/errors.js";
+import { login, register, resolveActor } from "../../src/services/authService.js";
+import { EmailTaken, InvalidEmail, InvalidPassword, Unauthenticated } from "../../src/domain/errors.js";
 
 const run = Date.now();
 let customer, staff;
@@ -79,4 +79,30 @@ test("register with an email that is taken is EmailTaken, whatever its case", as
   await register(`dup-${run}@register.test`, "correct-horse");
   await assert.rejects(register(`dup-${run}@register.test`, "another-pass"), EmailTaken);
   await assert.rejects(register(`DUP-${run}@Register.test`, "another-pass"), EmailTaken);
+});
+
+test("login with the right password returns a token for that user", async () => {
+  const email = `login-${run}@register.test`;
+  await register(email, "correct-horse");
+  const { rows } = await pool.query("SELECT id, role FROM users WHERE email = $1", [email]);
+  const { token } = await login(` ${email.toUpperCase()} `, "correct-horse");
+  const claims = jwt.verify(token, loadConfig().jwtSecret, { algorithms: ["HS256"] });
+  assert.equal(claims.sub, String(rows[0].id));
+  assert.equal(claims.role, rows[0].role);
+});
+
+test("login with a wrong password or an unknown email is the same Unauthenticated error", async () => {
+  const email = `wrong-${run}@register.test`;
+  await register(email, "correct-horse");
+  const wrongPassword = await login(email, "not-the-password").catch((e) => e);
+  const unknownEmail = await login(`nobody-${run}@register.test`, "correct-horse").catch((e) => e);
+  assert.ok(wrongPassword instanceof Unauthenticated);
+  assert.ok(unknownEmail instanceof Unauthenticated);
+  assert.equal(wrongPassword.message, unknownEmail.message);
+});
+
+test("login with a missing or non-string email or password is a validation error", async () => {
+  await assert.rejects(login(undefined, "correct-horse"), InvalidEmail);
+  await assert.rejects(login(`x-${run}@register.test`, undefined), InvalidPassword);
+  await assert.rejects(login(`x-${run}@register.test`, 12345678), InvalidPassword);
 });

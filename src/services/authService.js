@@ -7,12 +7,19 @@ import jwt from "jsonwebtoken";
 import { loadConfig } from "../config.js";
 import { pool } from "../db/pool.js";
 import { checkPassword, normalizeEmail } from "../domain/credentials.js";
-import { Unauthenticated } from "../domain/errors.js";
+import { InvalidPassword, Unauthenticated } from "../domain/errors.js";
 import { isId } from "../domain/ids.js";
 import { UserRepository } from "../repositories/userRepository.js";
 
 const BCRYPT_COST = 10;
 const TOKEN_LIFETIME = "1h";
+
+function issueToken(user) {
+  return jwt.sign({ sub: String(user.id), role: user.role }, loadConfig().jwtSecret, {
+    algorithm: "HS256",
+    expiresIn: TOKEN_LIFETIME,
+  });
+}
 
 // creates a customer account and returns a token for it. the role is never taken from
 // the request, the database gives every new user the customer role.
@@ -21,11 +28,18 @@ export async function register(rawEmail, rawPassword) {
   checkPassword(rawPassword);
   const passwordHash = await bcrypt.hash(rawPassword, BCRYPT_COST);
   const user = await new UserRepository(pool).create(email, passwordHash);
-  const token = jwt.sign({ sub: String(user.id), role: user.role }, loadConfig().jwtSecret, {
-    algorithm: "HS256",
-    expiresIn: TOKEN_LIFETIME,
-  });
-  return { token };
+  return { token: issueToken(user) };
+}
+
+// a wrong email and a wrong password give the same error, so the api doesn't reveal which emails exist
+export async function login(rawEmail, rawPassword) {
+  const email = normalizeEmail(rawEmail);
+  if (typeof rawPassword !== "string") throw new InvalidPassword();
+  const user = await new UserRepository(pool).findByEmail(email);
+  if (!user || !(await bcrypt.compare(rawPassword, user.passwordHash))) {
+    throw new Unauthenticated("Invalid email or password");
+  }
+  return { token: issueToken(user) };
 }
 
 export async function resolveActor(rawId) {

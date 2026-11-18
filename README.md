@@ -34,9 +34,28 @@ Then open http://localhost:3000/docs. Stop with `npm run down`, which stops both
 - Pick your own password in `.env` before the first `npm run db:up`. Postgres only reads it when the `pgdata` volume is first created, so changing it later needs `docker compose down -v` (this deletes the data) or an `ALTER USER`.
 - Migrations run every time the container starts and only apply new files. If the database isn't ready yet the container exits and restarts until it is.
 
+### Useful Docker commands
+
+Run these from the project folder. The services are called `app` (the api) and `db` (postgres).
+
+| Command | What it does |
+|---|---|
+| `docker compose ps` | Lists the containers and their state. `app` and `db` should both say `healthy`. |
+| `docker compose logs -f app` | Follows the api's log live (Ctrl+C stops following, not the app). Shows the migrations on startup and any server errors. Add `--tail 50` to start from the last 50 lines. |
+| `docker compose logs db` | The database's log. |
+| `docker compose restart app` | Restarts only the api. The data and the database are untouched. |
+| `docker compose up -d --build app` | Rebuilds the image after you change code and replaces the running api. (`npm run up` does this for both services.) |
+| `docker compose exec app sh` | Opens a shell inside the running api container (type `exit` to leave). `whoami` there shows `node`, not root. |
+| `docker compose exec db sh -c 'psql -U $POSTGRES_USER -d $POSTGRES_DB'` | Opens a SQL prompt on the database, for example `select id, event_date, status from bookings order by id desc limit 5;`. Type `\q` to leave. |
+| `docker compose exec db sh -c 'psql -U $POSTGRES_USER -d $POSTGRES_DB -c "select count(*) from bookings"'` | Runs one SQL statement and prints the result. |
+| `docker inspect -f '{{.State.Health.Status}}' lumeo-booth-app-1` | Prints the app's health (`healthy`, `unhealthy` or `starting`), the same check as `/health`. |
+| `docker compose down` | Stops and removes both containers. **Keeps the data** (`npm run down` is the same). |
+| `docker compose down -v` | Same, but also **deletes the database volume**. Use it for a clean start; the next `npm run up` builds an empty database, so run `npm run seed:docker` again. |
+| `docker compose config` | Prints the compose file with your `.env` values filled in. A good way to see why compose refuses to start (a missing `POSTGRES_PASSWORD` or `JWT_SECRET` is reported here). It prints your real secrets, so don't paste its output anywhere or run it while sharing your screen. |
+
 ## Demo front end
 
-With the app running, open http://localhost:3000. It's a plain page in [public/](public/): `index.html` (markup), `styles.css`, and ES modules in `js/` (`api.js` and `session.js` talk to the server, one module per panel, `main.js` wires them up). No build step, no libraries. for testing the api by hand:
+With the app running, open http://localhost:3000. It's a plain page in [public/](public/): `index.html` (markup), `styles.css`, and ES modules in `js/` (`api.js` and `session.js` talk to the server, one module per panel, `main.js` wires them up). No build step, no libraries. It's for testing the api by hand:
 
 - **Sign in** with the dev customer or staff account (one click), or log in / register any email. The page keeps the JWT for the browser tab and shows the user id and role it claims.
 - **Book a booth** with a visible `Idempotency-Key`. Clicking Book again with the same key shows a replay; changing the body but keeping the key shows `idempotency_key_reused`. "Check availability" calls the availability endpoint.
